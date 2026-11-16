@@ -1,5 +1,7 @@
 import * as complaintService from './complaint.service.js';
 import * as intelligenceService from '../intelligence/intelligence.service.js';
+import { createComplaintResolutionService } from './complaint-resolution.service.js';
+import * as objectStorage from '../../services/objectStorage.js';
 
 export async function create(req, res, next) {
   try {
@@ -28,4 +30,24 @@ export function getAiAssessment(req, res, next) {
     if (!assessment) return res.status(404).json({ error: 'Complaint or AI assessment not found' });
     res.json({ assessment });
   } catch (error) { next(error); }
+}
+
+export function createResolutionController(storageAdapter = objectStorage) {
+  const resolutionService = createComplaintResolutionService(storageAdapter);
+  return {
+    async getResolution(req, res, next) {
+      try {
+        const resolution = await resolutionService.getResolution(req.params.id, req.user.id);
+        if (!resolution) return res.status(404).json({ error: 'Complaint not found' });
+        res.json({ resolution });
+      } catch (error) { next(error); }
+    },
+    submitResolutionVerification(req, res, next) {
+      try {
+        const verification = resolutionService.submitVerification(req.params.id, req.user.id, req.body);
+        if (!verification) return res.status(404).json({ error: 'Complaint not found' });
+        res.status(201).json({ verification });
+      } catch (error) { next(error); }
+    }
+  };
 }

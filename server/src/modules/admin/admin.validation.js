@@ -8,6 +8,15 @@ export const issueListQuerySchema = z.object({
 }).strict();
 
 export const issueIdSchema = z.object({ id: z.coerce.number().int().positive() }).strict();
+export const disputeIssueIdSchema = z.object({ issueId: z.coerce.number().int().positive() }).strict();
+export const disputeListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  offset: z.coerce.number().int().min(0).max(1000000).default(0)
+}).strict();
+export const disputeReviewSchema = z.object({
+  decision: z.enum(['ACCEPT','REJECT']),
+  reason: z.string().trim().min(1).max(2000)
+}).strict();
 export const assignOfficerSchema = z.object({ officerId: z.coerce.number().int().positive() }).strict();
 export const duplicateListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),

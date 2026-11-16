@@ -138,6 +138,11 @@ const approveTx=db.transaction((id,canonicalId,adminId)=>{
   const tree=descendantsOf(sourceId), targetTree=descendantsOf(canonicalId);
   const allIds=[...new Set([...tree,...targetTree])];
   const placeholders=allIds.map(()=>'?').join(',');
+  const verified=db.prepare(`SELECT civic_issue_id FROM civic_issue_resolution_verifications
+    WHERE civic_issue_id IN (${placeholders}) UNION ALL
+    SELECT civic_issue_id FROM civic_issue_dispute_reviews
+    WHERE civic_issue_id IN (${placeholders}) LIMIT 1`).get(...allIds,...allIds);
+  if(verified) throw new DuplicateError('Issues with resolution verification or dispute review history cannot be grouped',409);
   const assigned=db.prepare(`SELECT id FROM civic_issues WHERE id IN (${placeholders})
     AND (assigned_officer_id IS NOT NULL OR assigned_team_id IS NOT NULL)`).all(...allIds);
   if(assigned.length) throw new DuplicateError('Unassign officers and ward teams from all grouped issues before approval');

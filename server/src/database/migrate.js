@@ -6,8 +6,9 @@ import * as issueGrouping from './migrations/004_issue_grouping.js';
 import * as wardTeamManagement from './migrations/005_ward_team_management.js';
 import * as issueTeamAssignments from './migrations/006_issue_team_assignments.js';
 import * as officerWorkflowEvidence from './migrations/007_officer_workflow_evidence.js';
+import * as citizenResolutionVerification from './migrations/008_citizen_resolution_verification.js';
 
-const migrations = [coreSchema, civicIssues, issueAssignments, issueGrouping, wardTeamManagement, issueTeamAssignments, officerWorkflowEvidence];
+const migrations = [coreSchema, civicIssues, issueAssignments, issueGrouping, wardTeamManagement, issueTeamAssignments, officerWorkflowEvidence, citizenResolutionVerification];
 
 export function migrateDatabase(database = defaultDatabase) {
   const applyPendingMigrations = database.transaction(() => {

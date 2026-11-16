@@ -82,6 +82,27 @@ test('duplicate grouping rejects issues with an active ward team assignment',()=
  assert.equal(db.prepare('SELECT status FROM civic_issues WHERE id=?').get(source).status,'OPEN');
 });
 
+test('duplicate grouping rejects verification and final dispute-review history on either issue tree',async()=>{
+ const verified=issue('RESOLVED'),target=issue(),verifiedComplaint=complaint(2,verified);
+ db.prepare(`INSERT INTO civic_issue_resolution_verifications
+   (civic_issue_id,complaint_id,citizen_user_id,decision) VALUES(?,?,2,'CONFIRM')`).run(verified,verifiedComplaint);
+ const verifiedSuggestion=suggestion(verified,target);
+ assert.throws(()=>duplicate.approveDuplicate(verifiedSuggestion,target,1),{status:409});
+ assert.equal(db.prepare('SELECT status FROM civic_issues WHERE id=?').get(verified).status,'RESOLVED');
+ assert.equal(db.prepare('SELECT status FROM civic_issue_duplicate_suggestions WHERE id=?').get(verifiedSuggestion).status,'PENDING');
+
+ const reviewed=issue('RESOLVED'),other=issue(),reviewedComplaint=complaint(2,reviewed);
+ db.prepare(`INSERT INTO civic_issue_resolution_verifications
+   (civic_issue_id,complaint_id,citizen_user_id,decision,reason) VALUES(?,?,2,'DISPUTE','Still unresolved')`)
+   .run(reviewed,reviewedComplaint);
+ const { createDisputeReviewService }=await import('../src/modules/admin/dispute-review.service.js');
+ createDisputeReviewService().reviewDispute(reviewed,1,{decision:'REJECT',reason:'Repair was adequate'});
+ const reviewedSuggestion=suggestion(other,reviewed);
+ assert.throws(()=>duplicate.approveDuplicate(reviewedSuggestion,other,1),{status:409});
+ assert.equal(db.prepare('SELECT decision FROM civic_issue_dispute_reviews WHERE civic_issue_id=?').get(reviewed).decision,'REJECTED');
+ assert.equal(db.prepare('SELECT status FROM civic_issue_duplicate_suggestions WHERE id=?').get(reviewedSuggestion).status,'PENDING');
+});
+
 test('late grouping failure rolls back links, merge state, review and audit; repeated review conflicts',()=>{
  const a=issue(),b=issue();complaint(2,b);const sid=suggestion(a,b);
  db.exec(`CREATE TRIGGER fail_group_test BEFORE INSERT ON civic_issue_grouping_events WHEN NEW.suggestion_id=${sid} BEGIN SELECT RAISE(ABORT,'forced'); END`);

@@ -23,3 +23,8 @@ export const listComplaintsSchema = z.object({
 export const complaintIdSchema = z.object({
   id: z.coerce.number().int().positive()
 }).strict();
+
+export const resolutionVerificationSchema = z.discriminatedUnion('decision', [
+  z.object({ decision: z.literal('CONFIRM') }).strict(),
+  z.object({ decision: z.literal('DISPUTE'), reason: z.string().trim().min(1).max(2000) }).strict()
+]);

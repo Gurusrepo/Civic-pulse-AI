@@ -1,6 +1,8 @@
 import * as adminService from './admin.service.js';
 import * as wardService from './ward.service.js';
 import * as teamAssignmentService from './team-assignment.service.js';
+import { createDisputeReviewService } from './dispute-review.service.js';
+import * as objectStorage from '../../services/objectStorage.js';
 
 export function listIssues(req, res, next) {
   try { res.json(adminService.listCivicIssues(req.validatedQuery)); }
@@ -91,4 +93,24 @@ export function addTeamMember(req, res, next) {
 }
 export function removeTeamMember(req, res, next) {
   try { res.json({ membership: wardService.removeTeamMember(req.params.id, req.params.userId, req.user.id) }); } catch (error) { next(error); }
+}
+
+export function createDisputeReviewController(storageAdapter = objectStorage) {
+  const service = createDisputeReviewService(storageAdapter);
+  return {
+    list(req, res, next) {
+      try { res.json(service.listDisputes(req.validatedQuery)); } catch (error) { next(error); }
+    },
+    async get(req, res, next) {
+      try {
+        const dispute = await service.getDispute(req.params.issueId);
+        if (!dispute) return res.status(404).json({ error: 'Disputed civic issue not found' });
+        res.json({ dispute });
+      } catch (error) { next(error); }
+    },
+    review(req, res, next) {
+      try { res.json({ review: service.reviewDispute(req.params.issueId, req.user.id, req.body) }); }
+      catch (error) { next(error); }
+    }
+  };
 }
