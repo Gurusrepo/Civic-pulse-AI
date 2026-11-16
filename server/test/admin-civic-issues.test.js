@@ -42,6 +42,18 @@ function addComplaint(userId, civicIssueId, title, description) {
     .run(userId, civicIssueId, title, description).lastInsertRowid);
 }
 
+function addLegacyIndividualAssignment(targetIssueId, officerId = 3) {
+  db.exec('DROP TRIGGER civic_issue_individual_assignment_deprecated');
+  db.prepare('UPDATE civic_issues SET assigned_officer_id=? WHERE id=?').run(officerId, targetIssueId);
+  db.prepare(`INSERT INTO civic_issue_assignment_events
+    (civic_issue_id,event_type,previous_officer_id,officer_id,admin_user_id)
+    VALUES(?,'ASSIGNED',NULL,?,1)`).run(targetIssueId, officerId);
+  db.exec(`CREATE TRIGGER civic_issue_individual_assignment_deprecated
+    BEFORE UPDATE OF assigned_officer_id ON civic_issues
+    WHEN NEW.assigned_officer_id IS NOT NULL AND NEW.assigned_officer_id IS NOT OLD.assigned_officer_id
+    BEGIN SELECT RAISE(ABORT,'new individual assignments are disabled; route to a ward team'); END`);
+}
+
 function tokenFor(userId) {
   return jwt.sign({}, process.env.JWT_SECRET, {
     algorithm: 'HS256', subject: String(userId), issuer: 'civicpulse-api', audience: 'civicpulse-client'
@@ -169,21 +181,28 @@ test('citizens and officers are rejected from admin endpoints; citizens retain o
   assert.equal(ownReport.reportCount, 2);
 });
 
-test('assignment, reassignment, and unassignment keep current state and append matching events', async () => {
+test('new individual assignment and reassignment are blocked while legacy assignments remain readable and unassignable', async () => {
   const invalid = await request(`/api/admin/civic-issues/${issueId}/assignments`, {
     userId: 1, method: 'POST', body: { officerId: 2 }
   });
-  assert.equal(invalid.status, 400);
+  assert.equal(invalid.status, 409);
 
   const assign = await request(`/api/admin/civic-issues/${issueId}/assignments`, {
     userId: 1, method: 'POST', body: { officerId: 3 }
   });
-  assert.equal(assign.status, 201);
-  assert.equal((await assign.json()).assignment.eventType, 'ASSIGNED');
+  assert.equal(assign.status, 409);
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM civic_issue_assignment_events WHERE civic_issue_id=?').get(issueId).count, 0);
+
+  addLegacyIndividualAssignment(issueId);
   assert.equal(db.prepare('SELECT assigned_officer_id FROM civic_issues WHERE id = ?').get(issueId).assigned_officer_id, 3);
   assert.equal(db.prepare('SELECT status FROM civic_issues WHERE id = ?').get(issueId).status, 'OPEN');
   assert.throws(() => db.prepare('UPDATE civic_issues SET assigned_officer_id = 2 WHERE id = ?').run(issueId));
   assert.throws(() => db.prepare("UPDATE users SET role = 'CITIZEN' WHERE id = 3").run());
+
+  const detail = await request(`/api/admin/civic-issues/${issueId}`, { userId: 1 });
+  const { issue } = await detail.json();
+  assert.equal(issue.currentAssignment.officerId, 3);
+  assert.equal(issue.assignmentHistory.length, 1);
 
   const duplicate = await request(`/api/admin/civic-issues/${issueId}/assignments`, {
     userId: 1, method: 'POST', body: { officerId: 4 }
@@ -193,9 +212,8 @@ test('assignment, reassignment, and unassignment keep current state and append m
   const reassign = await request(`/api/admin/civic-issues/${issueId}/assignments/reassign`, {
     userId: 1, method: 'POST', body: { officerId: 4 }
   });
-  assert.equal(reassign.status, 200);
-  assert.equal((await reassign.json()).assignment.eventType, 'REASSIGNED');
-  assert.equal(db.prepare('SELECT assigned_officer_id FROM civic_issues WHERE id = ?').get(issueId).assigned_officer_id, 4);
+  assert.equal(reassign.status, 409);
+  assert.equal(db.prepare('SELECT assigned_officer_id FROM civic_issues WHERE id = ?').get(issueId).assigned_officer_id, 3);
 
   const unassign = await request(`/api/admin/civic-issues/${issueId}/assignments/unassign`, { userId: 1, method: 'POST' });
   assert.equal(unassign.status, 200);
@@ -203,24 +221,23 @@ test('assignment, reassignment, and unassignment keep current state and append m
   assert.equal(db.prepare('SELECT assigned_officer_id FROM civic_issues WHERE id = ?').get(issueId).assigned_officer_id, null);
   const events = db.prepare(`SELECT event_type, previous_officer_id, officer_id
     FROM civic_issue_assignment_events WHERE civic_issue_id = ? ORDER BY id`).all(issueId);
-  assert.deepEqual(events.map((event) => event.event_type), ['ASSIGNED', 'REASSIGNED', 'UNASSIGNED']);
-  assert.deepEqual(events.map((event) => [event.previous_officer_id, event.officer_id]), [[null, 3], [3, 4], [4, null]]);
+  assert.deepEqual(events.map((event) => event.event_type), ['ASSIGNED', 'UNASSIGNED']);
+  assert.deepEqual(events.map((event) => [event.previous_officer_id, event.officer_id]), [[null, 3], [3, null]]);
   assert.throws(() => db.prepare('UPDATE civic_issue_assignment_events SET event_type = event_type WHERE civic_issue_id = ?').run(issueId));
 });
 
-test('merged issues reject assignments and event insertion failure rolls back current assignment', async () => {
+test('merged issues reject assignment and failed legacy unassignment rolls back current state', async () => {
   const mergedAssignment = await request(`/api/admin/civic-issues/${mergedIssueId}/assignments`, {
     userId: 1, method: 'POST', body: { officerId: 3 }
   });
   assert.equal(mergedAssignment.status, 409);
 
+  addLegacyIndividualAssignment(issueId);
   db.exec(`CREATE TRIGGER test_fail_assignment_event BEFORE INSERT ON civic_issue_assignment_events
     WHEN NEW.civic_issue_id = ${issueId} BEGIN SELECT RAISE(ABORT, 'forced test failure'); END`);
-  const failed = await request(`/api/admin/civic-issues/${issueId}/assignments`, {
-    userId: 1, method: 'POST', body: { officerId: 3 }
-  });
+  const failed = await request(`/api/admin/civic-issues/${issueId}/assignments/unassign`, { userId: 1, method: 'POST' });
   assert.equal(failed.status, 500);
-  assert.equal(db.prepare('SELECT assigned_officer_id FROM civic_issues WHERE id = ?').get(issueId).assigned_officer_id, null);
+  assert.equal(db.prepare('SELECT assigned_officer_id FROM civic_issues WHERE id = ?').get(issueId).assigned_officer_id, 3);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM civic_issue_assignment_events WHERE civic_issue_id = ?').get(issueId).count, 3);
   db.exec('DROP TRIGGER test_fail_assignment_event');
 });

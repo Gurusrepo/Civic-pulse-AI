@@ -19,6 +19,14 @@ const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
 });
 
 export async function uploadComplaintImage(file) {
+  return uploadImage(file, 'complaints');
+}
+
+export async function uploadRepairEvidenceImage(file) {
+  return uploadImage(file, 'repair-evidence');
+}
+
+async function uploadImage(file, prefix) {
   const extension = extensionsByMimeType[file.mimeType];
   if (!extension) {
     const error = new Error('Unsupported image format');
@@ -26,7 +34,7 @@ export async function uploadComplaintImage(file) {
     throw error;
   }
 
-  const objectKey = `complaints/${randomUUID()}.${extension}`;
+  const objectKey = `${prefix}/${randomUUID()}.${extension}`;
   const { error } = await supabase.storage
     .from(BUCKET_NAME)
     .upload(objectKey, file.buffer, {
@@ -50,7 +58,17 @@ export async function createReadUrl(objectKey, mimeType) {
   return data.signedUrl;
 }
 
+export async function createRepairEvidenceReadUrl(objectKey, mimeType) {
+  if (!objectKey.startsWith('repair-evidence/')) throw new Error('Invalid repair evidence object key');
+  return createReadUrl(objectKey, mimeType);
+}
+
 export async function deleteObject(objectKey) {
   const { error } = await supabase.storage.from(BUCKET_NAME).remove([objectKey]);
   if (error) throw new Error('Cloud media cleanup failed');
+}
+
+export async function deleteRepairEvidenceObject(objectKey) {
+  if (!objectKey.startsWith('repair-evidence/')) throw new Error('Invalid repair evidence object key');
+  return deleteObject(objectKey);
 }

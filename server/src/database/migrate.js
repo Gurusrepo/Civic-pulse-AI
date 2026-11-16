@@ -3,8 +3,11 @@ import * as coreSchema from './migrations/001_core_schema.js';
 import * as civicIssues from './migrations/002_civic_issues.js';
 import * as issueAssignments from './migrations/003_issue_assignments.js';
 import * as issueGrouping from './migrations/004_issue_grouping.js';
+import * as wardTeamManagement from './migrations/005_ward_team_management.js';
+import * as issueTeamAssignments from './migrations/006_issue_team_assignments.js';
+import * as officerWorkflowEvidence from './migrations/007_officer_workflow_evidence.js';
 
-const migrations = [coreSchema, civicIssues, issueAssignments, issueGrouping];
+const migrations = [coreSchema, civicIssues, issueAssignments, issueGrouping, wardTeamManagement, issueTeamAssignments, officerWorkflowEvidence];
 
 export function migrateDatabase(database = defaultDatabase) {
   const applyPendingMigrations = database.transaction(() => {

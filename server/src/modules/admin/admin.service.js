@@ -8,16 +8,24 @@ export class AdminIssueError extends Error {
 }
 
 const selectIssueBase = db.prepare(`
-  SELECT i.id, i.status, i.merged_into_issue_id, i.assigned_officer_id,
+  SELECT i.id, i.status, i.merged_into_issue_id, i.assigned_officer_id, i.assigned_team_id, i.routing_department,
          i.created_at, i.updated_at,
          officer.display_name AS officer_name,
+         team.name AS team_name, team.department AS team_department, team.ward_id,
+         ward.code AS ward_code, ward.name AS ward_name,
          (SELECT e.created_at FROM civic_issue_assignment_events e
           WHERE e.civic_issue_id = i.id AND e.officer_id = i.assigned_officer_id
             AND e.event_type IN ('ASSIGNED', 'REASSIGNED')
           ORDER BY e.created_at DESC, e.id DESC LIMIT 1) AS assigned_at,
+         (SELECT e.created_at FROM civic_issue_team_assignment_events e
+          WHERE e.civic_issue_id = i.id AND e.team_id = i.assigned_team_id
+            AND e.event_type IN ('ASSIGNED','REASSIGNED')
+          ORDER BY e.created_at DESC,e.id DESC LIMIT 1) AS team_assigned_at,
          (SELECT COUNT(*) FROM complaints c WHERE c.civic_issue_id = i.id) AS report_count
   FROM civic_issues i
   LEFT JOIN users officer ON officer.id = i.assigned_officer_id
+  LEFT JOIN ward_teams team ON team.id = i.assigned_team_id
+  LEFT JOIN wards ward ON ward.id = team.ward_id
   WHERE i.id = ?
 `);
 
@@ -131,6 +139,10 @@ function mapIssue(row) {
       officerName: row.officer_name,
       assignedAt: row.assigned_at
     },
+    currentTeamAssignment: row.assigned_team_id === null ? null : {
+      teamId: row.assigned_team_id, teamName: row.team_name, department: row.routing_department,
+      ward: { id: row.ward_id, code: row.ward_code, name: row.ward_name }, assignedAt: row.team_assigned_at
+    },
     aiAssessmentSummary: mapAssessmentSummary(row.id),
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -141,16 +153,24 @@ export function listCivicIssues({ limit, offset, status }) {
   const where = status ? 'i.status = ?' : "i.status <> 'MERGED'";
   const params = status ? [status, limit + 1, offset] : [limit + 1, offset];
   const rows = db.prepare(`
-    SELECT i.id, i.status, i.merged_into_issue_id, i.assigned_officer_id,
+    SELECT i.id, i.status, i.merged_into_issue_id, i.assigned_officer_id, i.assigned_team_id, i.routing_department,
            i.created_at, i.updated_at,
            officer.display_name AS officer_name,
+           team.name AS team_name, team.department AS team_department, team.ward_id,
+           ward.code AS ward_code, ward.name AS ward_name,
            (SELECT e.created_at FROM civic_issue_assignment_events e
             WHERE e.civic_issue_id = i.id AND e.officer_id = i.assigned_officer_id
               AND e.event_type IN ('ASSIGNED', 'REASSIGNED')
             ORDER BY e.created_at DESC, e.id DESC LIMIT 1) AS assigned_at,
+           (SELECT e.created_at FROM civic_issue_team_assignment_events e
+            WHERE e.civic_issue_id = i.id AND e.team_id = i.assigned_team_id
+              AND e.event_type IN ('ASSIGNED','REASSIGNED')
+            ORDER BY e.created_at DESC,e.id DESC LIMIT 1) AS team_assigned_at,
            (SELECT COUNT(*) FROM complaints c WHERE c.civic_issue_id = i.id) AS report_count
     FROM civic_issues i
     LEFT JOIN users officer ON officer.id = i.assigned_officer_id
+    LEFT JOIN ward_teams team ON team.id = i.assigned_team_id
+    LEFT JOIN wards ward ON ward.id = team.ward_id
     WHERE ${where}
     ORDER BY i.updated_at DESC, i.id DESC
     LIMIT ? OFFSET ?
@@ -224,6 +244,42 @@ export function getCivicIssue(issueId) {
     admin: { id: event.admin_user_id, name: event.admin_name },
     createdAt: event.created_at
   }));
+  issue.teamAssignmentHistory = db.prepare(`
+    SELECT e.id,e.event_type,e.previous_team_id,previous.name AS previous_team_name,
+           e.team_id,team.name AS team_name,e.approved_department,e.admin_user_id,
+           admin.display_name AS admin_name,e.created_at
+    FROM civic_issue_team_assignment_events e
+    LEFT JOIN ward_teams previous ON previous.id=e.previous_team_id
+    LEFT JOIN ward_teams team ON team.id=e.team_id
+    JOIN users admin ON admin.id=e.admin_user_id
+    WHERE e.civic_issue_id=? ORDER BY e.created_at,e.id
+  `).all(issueId).map(event => ({
+    id:event.id,eventType:event.event_type,approvedDepartment:event.approved_department,
+    previousTeam:event.previous_team_id===null?null:{id:event.previous_team_id,name:event.previous_team_name},
+    team:event.team_id===null?null:{id:event.team_id,name:event.team_name},
+    admin:{id:event.admin_user_id,name:event.admin_name},createdAt:event.created_at
+  }));
+  issue.repairEvidence = db.prepare(`
+    SELECT r.id,r.stage,r.uploaded_by_officer_id,u.display_name AS officer_name,
+           r.team_id,t.name AS team_name,r.assignment_event_id,r.mime_type,r.byte_size,r.created_at
+    FROM civic_issue_repair_evidence r
+    JOIN users u ON u.id=r.uploaded_by_officer_id
+    JOIN ward_teams t ON t.id=r.team_id
+    WHERE r.civic_issue_id=? ORDER BY r.created_at,r.id
+  `).all(issueId).map(row => ({ id: row.id, stage: row.stage,
+    officer: { id: row.uploaded_by_officer_id, name: row.officer_name },
+    team: { id: row.team_id, name: row.team_name }, assignmentEventId: row.assignment_event_id,
+    mimeType: row.mime_type, byteSize: row.byte_size, createdAt: row.created_at }));
+  issue.workHistory = db.prepare(`
+    SELECT e.id,e.event_type,e.team_id,t.name AS team_name,e.assignment_event_id,
+           e.officer_user_id,u.display_name AS officer_name,e.evidence_id,
+           e.status_before,e.status_after,e.created_at
+    FROM civic_issue_work_events e JOIN users u ON u.id=e.officer_user_id
+    JOIN ward_teams t ON t.id=e.team_id WHERE e.civic_issue_id=? ORDER BY e.created_at,e.id
+  `).all(issueId).map(event => ({ id: event.id, eventType: event.event_type,
+    team: { id: event.team_id, name: event.team_name }, assignmentEventId: event.assignment_event_id,
+    officer: { id: event.officer_user_id, name: event.officer_name }, evidenceId: event.evidence_id,
+    statusBefore: event.status_before, statusAfter: event.status_after, createdAt: event.created_at }));
   return issue;
 }
 
@@ -248,6 +304,9 @@ function assignmentTransaction(operation) {
     if (!findAdmin.get(adminId)) throw new AdminIssueError('Admin authorization is required', 403);
     const issue = findIssueForAssignment.get(issueId);
     if (!issue) throw new AdminIssueError('Civic issue not found', 404);
+    if (operation !== 'UNASSIGNED') {
+      throw new AdminIssueError('New individual assignments are disabled; route the issue to a ward team', 409);
+    }
     if (issue.status === 'MERGED' || issue.merged_into_issue_id !== null) {
       throw new AdminIssueError('Merged civic issues cannot be assigned', 409);
     }

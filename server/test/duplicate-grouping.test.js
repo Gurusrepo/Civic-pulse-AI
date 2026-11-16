@@ -12,6 +12,13 @@ function complaint(uid,iid,lat=12.3,lon=45.6,date='2026-11-01T12:00:00.000Z',tit
  return Number(db.prepare('INSERT INTO complaints(user_id,civic_issue_id,title,description,latitude,longitude,created_at) VALUES(?,?,?,?,?,?,?)').run(uid,iid,title,description,lat,lon,date).lastInsertRowid);
 }
 function suggestion(a,b){const [x,y]=[a,b].sort((p,q)=>p-q);return Number(db.prepare("INSERT INTO civic_issue_duplicate_suggestions(issue_a_id,issue_b_id,deterministic_score,signals_json) VALUES(?,?,.8,'{}')").run(x,y).lastInsertRowid);}
+function addLegacyIndividualAssignment(issueId,officerId){
+ db.exec('DROP TRIGGER civic_issue_individual_assignment_deprecated');
+ db.prepare('UPDATE civic_issues SET assigned_officer_id=? WHERE id=?').run(officerId,issueId);
+ db.exec(`CREATE TRIGGER civic_issue_individual_assignment_deprecated BEFORE UPDATE OF assigned_officer_id ON civic_issues
+   WHEN NEW.assigned_officer_id IS NOT NULL AND NEW.assigned_officer_id IS NOT OLD.assigned_officer_id
+   BEGIN SELECT RAISE(ABORT,'new individual assignments are disabled'); END`);
+}
 function token(id){return jwt.sign({},process.env.JWT_SECRET,{algorithm:'HS256',subject:String(id),issuer:'civicpulse-api',audience:'civicpulse-client'});}
 async function req(uri,{id=1,method='GET',body}={}){const headers={cookie:`civicpulse_token=${token(id)}`};if(body!==undefined)headers['content-type']='application/json';return fetch(`${baseUrl}${uri}`,{method,headers,...(body===undefined?{}:{body:JSON.stringify(body)})});}
 before(async()=>{user(1,'ADMIN');user(2,'CITIZEN');user(3,'OFFICER');user(4,'OFFICER');
@@ -49,10 +56,10 @@ test('grouping preserves canonical assignment and complaints while flattening so
 });
 
 test('assignment conflict, stale suggestions, and circular chains reject approval',()=>{
- const a=issue(),b=issue(),sid=suggestion(a,b);db.prepare('UPDATE civic_issues SET assigned_officer_id=4 WHERE id=?').run(b);
+ const a=issue(),b=issue(),sid=suggestion(a,b);addLegacyIndividualAssignment(b,4);
  assert.throws(()=>duplicate.approveDuplicate(sid,a,1),{status:409});
  db.prepare('UPDATE civic_issues SET assigned_officer_id=NULL WHERE id=?').run(b);
- db.prepare('UPDATE civic_issues SET assigned_officer_id=3 WHERE id=?').run(a);
+ addLegacyIndividualAssignment(a,3);
  assert.throws(()=>duplicate.approveDuplicate(sid,a,1),{status:409});
  assert.equal(db.prepare('SELECT assigned_officer_id FROM civic_issues WHERE id=?').get(a).assigned_officer_id,3);
  db.prepare('UPDATE civic_issues SET assigned_officer_id=NULL WHERE id=?').run(a);
@@ -62,6 +69,17 @@ test('assignment conflict, stale suggestions, and circular chains reject approva
  const x=issue(),y=issue();db.prepare("UPDATE civic_issues SET status='MERGED',merged_into_issue_id=? WHERE id=?").run(y,x);
  assert.throws(()=>db.prepare('UPDATE civic_issues SET merged_into_issue_id=? WHERE id=?').run(x,y));
  const cycle=suggestion(x,y);assert.throws(()=>duplicate.approveDuplicate(cycle,y,1),{status:409});
+});
+
+test('duplicate grouping rejects issues with an active ward team assignment',()=>{
+ const source=issue(),target=issue(),sid=suggestion(source,target);
+ const ward=Number(db.prepare("INSERT INTO wards(code,name) VALUES('GROUP-WARD','Grouping Ward')").run().lastInsertRowid);
+ const team=Number(db.prepare("INSERT INTO ward_teams(ward_id,name,department) VALUES(?,'Grouping Team','Roads & Infrastructure')").run(ward).lastInsertRowid);
+ db.prepare('INSERT INTO ward_team_memberships(team_id,officer_user_id,added_by_admin_id) VALUES(?,?,1)').run(team,3);
+ db.prepare("UPDATE civic_issues SET assigned_team_id=?,routing_department='Roads & Infrastructure' WHERE id=?").run(team,source);
+ assert.throws(()=>duplicate.approveDuplicate(sid,target,1),{status:409});
+ assert.equal(db.prepare('SELECT status FROM civic_issue_duplicate_suggestions WHERE id=?').get(sid).status,'PENDING');
+ assert.equal(db.prepare('SELECT status FROM civic_issues WHERE id=?').get(source).status,'OPEN');
 });
 
 test('late grouping failure rolls back links, merge state, review and audit; repeated review conflicts',()=>{

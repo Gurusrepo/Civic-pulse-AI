@@ -5,6 +5,7 @@ import { env } from './config/env.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import complaintRoutes from './modules/complaints/complaint.routes.js';
 import adminRoutes from './modules/admin/admin.routes.js';
+import officerRoutes from './modules/officer/officer.routes.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 
 const app = express();
@@ -36,6 +37,7 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/complaints', complaintRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/officer', officerRoutes);
 app.use(notFound);
 app.use(errorHandler);
 

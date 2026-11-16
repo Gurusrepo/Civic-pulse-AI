@@ -138,8 +138,9 @@ const approveTx=db.transaction((id,canonicalId,adminId)=>{
   const tree=descendantsOf(sourceId), targetTree=descendantsOf(canonicalId);
   const allIds=[...new Set([...tree,...targetTree])];
   const placeholders=allIds.map(()=>'?').join(',');
-  const assigned=db.prepare(`SELECT id FROM civic_issues WHERE id IN (${placeholders}) AND assigned_officer_id IS NOT NULL`).all(...allIds);
-  if(assigned.length) throw new DuplicateError('Unassign officers from all grouped issues before approval');
+  const assigned=db.prepare(`SELECT id FROM civic_issues WHERE id IN (${placeholders})
+    AND (assigned_officer_id IS NOT NULL OR assigned_team_id IS NOT NULL)`).all(...allIds);
+  if(assigned.length) throw new DuplicateError('Unassign officers and ward teams from all grouped issues before approval');
   const targetChain=db.prepare(`WITH RECURSIVE chain(id,merged_into_issue_id,path,cycle) AS (SELECT id,merged_into_issue_id,printf('/%d/',id),0 FROM civic_issues WHERE id=? UNION ALL SELECT i.id,i.merged_into_issue_id,chain.path||i.id||'/',instr(chain.path,printf('/%d/',i.id))>0 FROM civic_issues i JOIN chain ON i.id=chain.merged_into_issue_id WHERE chain.cycle=0) SELECT * FROM chain`).all(canonicalId);
   if(targetChain.some(x=>x.cycle)||targetChain.some(x=>x.id===sourceId)) throw new DuplicateError('Grouping would create a circular merge');
   db.prepare(`UPDATE complaints SET civic_issue_id=? WHERE civic_issue_id IN (${tree.map(()=>'?').join(',')})`).run(canonicalId,...tree);
