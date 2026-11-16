@@ -1,0 +1,2 @@
+-- Schema changes are managed exclusively by the versioned migrations in ./migrations.
+-- Run the shared migrate.js runner from server.js, database/init.js, or seed-users.js.
