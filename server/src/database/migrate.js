@@ -2,8 +2,9 @@ import { db as defaultDatabase } from '../config/database.js';
 import * as coreSchema from './migrations/001_core_schema.js';
 import * as civicIssues from './migrations/002_civic_issues.js';
 import * as issueAssignments from './migrations/003_issue_assignments.js';
+import * as issueGrouping from './migrations/004_issue_grouping.js';
 
-const migrations = [coreSchema, civicIssues, issueAssignments];
+const migrations = [coreSchema, civicIssues, issueAssignments, issueGrouping];
 
 export function migrateDatabase(database = defaultDatabase) {
   const applyPendingMigrations = database.transaction(() => {

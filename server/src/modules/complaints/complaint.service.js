@@ -1,5 +1,6 @@
 import { db } from '../../config/database.js';
 import { createReadUrl, deleteObject, uploadComplaintImage } from '../../services/objectStorage.js';
+import { generateCandidatesForComplaint } from '../admin/duplicate.service.js';
 
 const insertCivicIssue = db.prepare('INSERT INTO civic_issues DEFAULT VALUES');
 const insertComplaint = db.prepare(`
@@ -93,6 +94,8 @@ export async function createComplaint(userId, fields, file) {
       file,
       objectKey
     });
+    try { generateCandidatesForComplaint(row.id); }
+    catch (error) { console.error('Duplicate candidate generation failed:', error?.code ?? error?.name ?? 'Error'); }
     return {
       ...mapComplaint(row),
       media: [mapMedia(mediaRow)]

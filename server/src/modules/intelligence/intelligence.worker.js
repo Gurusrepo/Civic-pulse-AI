@@ -1,5 +1,6 @@
 import { db } from '../../config/database.js';
 import { classifyComplaint } from '../../services/geminiProvider.js';
+import { generateCandidatesForComplaint } from '../admin/duplicate.service.js';
 
 const POLL_INTERVAL_MS = 1000;
 const PROCESSING_LEASE_MINUTES = 1;
@@ -48,6 +49,12 @@ export async function processNextAssessment(classifier = classifyComplaint) {
       human_review_required: assessment.human_review_required ? 1 : 0,
       id: item.id
     });
+    try {
+      const complaintId = db.prepare('SELECT complaint_id FROM complaint_ai_assessments WHERE id=?').get(item.id)?.complaint_id;
+      if (complaintId) generateCandidatesForComplaint(complaintId);
+    } catch (error) {
+      console.error('Duplicate candidate refresh failed:', error?.code ?? error?.name ?? 'Error');
+    }
   } catch (error) {
     const safeCode = error?.diagnostic?.category ?? (
       ['PROVIDER_UNCONFIGURED', 'INVALID_PROVIDER_RESPONSE'].includes(error?.code)

@@ -27,10 +27,11 @@ after(() => {
 test('fresh initialization applies each migration once and creates the full schema', () => {
   const fresh = new Database(':memory:');
   fresh.pragma('foreign_keys = ON');
-  assert.deepEqual(migrateDatabase(fresh), ['001_core_schema', '002_civic_issues', '003_issue_assignments']);
+  assert.deepEqual(migrateDatabase(fresh), ['001_core_schema', '002_civic_issues', '003_issue_assignments', '004_issue_grouping']);
   assert.deepEqual(migrateDatabase(fresh), []);
-  assert.equal(fresh.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 3);
+  assert.equal(fresh.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 4);
   assert.ok(fresh.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'civic_issues'").get());
+  assert.ok(fresh.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'civic_issue_duplicate_suggestions'").get());
   assert.ok(fresh.prepare('PRAGMA table_info(complaints)').all().some((column) => column.name === 'civic_issue_id'));
   assert.ok(fresh.prepare('PRAGMA table_info(civic_issues)').all().some((column) => column.name === 'assigned_officer_id'));
   fresh.close();
@@ -53,7 +54,7 @@ test('existing complaint, media, user and AI assessment data survive issue backf
     VALUES (31, 11, 'SUCCEEDED', 'ROAD_DAMAGE', 'Roads & Infrastructure', 'MEDIUM',
       'A reported road defect.', '[]', 0.8, 0, '')`).run();
 
-  assert.deepEqual(migrateDatabase(existing), ['001_core_schema', '002_civic_issues', '003_issue_assignments']);
+  assert.deepEqual(migrateDatabase(existing), ['001_core_schema', '002_civic_issues', '003_issue_assignments', '004_issue_grouping']);
   const linked = existing.prepare(`SELECT c.id, c.user_id, c.status, c.civic_issue_id, i.status AS issue_status
     FROM complaints c JOIN civic_issues i ON i.id = c.civic_issue_id WHERE c.id = 11`).get();
   assert.equal(linked.id, 11);
@@ -67,14 +68,14 @@ test('existing complaint, media, user and AI assessment data survive issue backf
 
   const issueCount = existing.prepare('SELECT COUNT(*) AS count FROM civic_issues').get().count;
   assert.deepEqual(migrateDatabase(existing), []);
-  assert.equal(existing.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 3);
+  assert.equal(existing.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 4);
   assert.equal(existing.prepare('SELECT COUNT(*) AS count FROM civic_issues').get().count, issueCount);
   assert.throws(() => existing.prepare('UPDATE complaints SET civic_issue_id = 999 WHERE id = 11').run());
   existing.close();
 });
 
 test('the shared startup database can be initialized repeatedly without reapplying migrations', () => {
-  assert.deepEqual(migrateDatabase(defaultDb), ['001_core_schema', '002_civic_issues', '003_issue_assignments']);
+  assert.deepEqual(migrateDatabase(defaultDb), ['001_core_schema', '002_civic_issues', '003_issue_assignments', '004_issue_grouping']);
   assert.deepEqual(migrateDatabase(defaultDb), []);
-  assert.equal(defaultDb.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 3);
+  assert.equal(defaultDb.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 4);
 });
