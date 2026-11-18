@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { getApiErrorMessage } from '../../api/errors.js';
 import {
@@ -41,10 +42,81 @@ export default function NotificationMenu() {
   const [actionError, setActionError] = useState('');
   const [pendingId, setPendingId] = useState(null);
   const [isMarkingAll, setIsMarkingAll] = useState(false);
+  const [panelStyle, setPanelStyle] = useState(null);
+  const requestSequence = useRef(0);
+  const positionFrame = useRef(0);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestSequence.current += 1;
+    };
+  }, []);
+
+  const positionPanel = useCallback(() => {
+    const trigger = triggerRef.current;
+    const panel = panelRef.current;
+    if (!trigger || !panel) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const edge = 12;
+    const gap = 8;
+    const width = Math.min(360, Math.max(0, window.innerWidth - edge * 2));
+    const height = Math.min(panel.scrollHeight, window.innerHeight * 0.7, 500);
+    const left = Math.min(Math.max(edge, rect.right - width), window.innerWidth - edge - width);
+    const below = window.innerHeight - rect.bottom - gap - edge;
+    const above = rect.top - gap - edge;
+    const top = below >= Math.min(height, 180) || below >= above
+      ? Math.min(rect.bottom + gap, window.innerHeight - edge - height)
+      : Math.max(edge, rect.top - gap - height);
+
+    const nextStyle = { left, top, width, maxHeight: Math.max(120, Math.min(500, window.innerHeight * 0.7)) };
+    setPanelStyle((current) => current && current.left === nextStyle.left && current.top === nextStyle.top && current.width === nextStyle.width && current.maxHeight === nextStyle.maxHeight
+      ? current
+      : nextStyle);
+  }, [triggerRef, panelRef]);
+
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setPanelStyle(null);
+      return undefined;
+    }
+
+    let active = true;
+    const monitorPosition = () => {
+      if (!active) return;
+      positionPanel();
+      positionFrame.current = requestAnimationFrame(monitorPosition);
+    };
+    const schedulePosition = () => {
+      cancelAnimationFrame(positionFrame.current);
+      positionFrame.current = requestAnimationFrame(monitorPosition);
+    };
+    schedulePosition();
+    window.addEventListener('resize', schedulePosition);
+    window.addEventListener('orientationchange', schedulePosition);
+    window.addEventListener('scroll', schedulePosition, true);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedulePosition);
+    if (triggerRef.current) observer?.observe(triggerRef.current);
+    if (panelRef.current) observer?.observe(panelRef.current);
+    return () => {
+      active = false;
+      cancelAnimationFrame(positionFrame.current);
+      window.removeEventListener('resize', schedulePosition);
+      window.removeEventListener('orientationchange', schedulePosition);
+      window.removeEventListener('scroll', schedulePosition, true);
+      observer?.disconnect();
+    };
+  }, [isOpen, positionPanel, triggerRef, panelRef, items.length, isLoading]);
 
   useEffect(() => {
     let active = true;
+    let inFlight = false;
     async function refreshUnreadCount() {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const result = await getUnreadNotificationCount();
         if (active) {
@@ -53,6 +125,8 @@ export default function NotificationMenu() {
         }
       } catch (requestError) {
         if (active) setCountError(getApiErrorMessage(requestError, 'Unread notifications could not be checked.'));
+      } finally {
+        inFlight = false;
       }
     }
 
@@ -65,21 +139,26 @@ export default function NotificationMenu() {
   }, [countRetry]);
 
   async function loadPage(pageOffset = 0, append = false) {
+    const sequence = ++requestSequence.current;
     setError('');
     setActionError('');
     if (append) setIsLoadingMore(true);
     else setIsLoading(true);
     try {
       const result = await listNotifications({ limit: PAGE_LIMIT, offset: pageOffset });
+      if (!mountedRef.current || sequence !== requestSequence.current) return;
       const pageItems = Array.isArray(result.items) ? result.items : [];
       setItems((current) => append ? [...current, ...pageItems] : pageItems);
       setOffset(pageOffset);
       setHasMore(Boolean(result.pagination?.hasMore));
     } catch (requestError) {
+      if (!mountedRef.current || sequence !== requestSequence.current) return;
       setError(getApiErrorMessage(requestError, 'Notifications could not be loaded.'));
     } finally {
-      setIsLoading(false);
-      setIsLoadingMore(false);
+      if (mountedRef.current && sequence === requestSequence.current) {
+        setIsLoading(false);
+        setIsLoadingMore(false);
+      }
     }
   }
 
@@ -94,12 +173,13 @@ export default function NotificationMenu() {
     setActionError('');
     try {
       const result = await markNotificationRead(id);
+      if (!mountedRef.current) return;
       setItems((current) => current.map((item) => item.id === id ? result.notification : item));
       setCountRetry((value) => value + 1);
     } catch (requestError) {
-      setActionError(getApiErrorMessage(requestError, 'This notification could not be marked as read.'));
+      if (mountedRef.current) setActionError(getApiErrorMessage(requestError, 'This notification could not be marked as read.'));
     } finally {
-      setPendingId(null);
+      if (mountedRef.current) setPendingId(null);
     }
   }
 
@@ -108,12 +188,13 @@ export default function NotificationMenu() {
     setActionError('');
     try {
       await markAllNotificationsRead();
+      if (!mountedRef.current) return;
       setItems((current) => current.map((item) => ({ ...item, isRead: true })));
       setCountRetry((value) => value + 1);
     } catch (requestError) {
-      setActionError(getApiErrorMessage(requestError, 'Notifications could not be marked as read.'));
+      if (mountedRef.current) setActionError(getApiErrorMessage(requestError, 'Notifications could not be marked as read.'));
     } finally {
-      setIsMarkingAll(false);
+      if (mountedRef.current) setIsMarkingAll(false);
     }
   }
 
@@ -141,8 +222,8 @@ export default function NotificationMenu() {
         <span className="min-w-0 truncate">{notificationsLabel}</span>
         {unreadCount > 0 && <span aria-hidden="true" className="ml-1 inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-[#e2c77f] px-1.5 py-0.5 text-xs font-bold text-[#213c2a] lg:ml-auto">{unreadCount > 99 ? '99+' : unreadCount}</span>}
       </button>
-      {isOpen && (
-        <section ref={panelRef} id="citizen-notification-menu" aria-label="Notifications" className="absolute right-0 top-full z-50 mt-2 max-h-[75vh] w-[min(24rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-[#e5e2d5] bg-white p-4 text-[#24362a] shadow-xl">
+      {isOpen && createPortal(
+        <section ref={panelRef} id="citizen-notification-menu" role="region" aria-label="Notifications" style={{ ...panelStyle, position: 'fixed', boxSizing: 'border-box', zIndex: 1000, visibility: panelStyle ? 'visible' : 'hidden' }} className="overflow-y-auto rounded-2xl border border-[#e5e2d5] bg-white p-4 text-[#24362a] shadow-xl">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-[#20382a]">Notifications</h2>
             <button type="button" onClick={refreshMenu} className="rounded px-2 py-1 text-sm font-semibold text-[#1d4933] underline underline-offset-2">Refresh</button>
@@ -179,7 +260,8 @@ export default function NotificationMenu() {
               </>
             )}
           </div>
-        </section>
+        </section>,
+        document.body
       )}
     </div>
   );

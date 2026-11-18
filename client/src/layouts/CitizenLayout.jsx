@@ -4,13 +4,8 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useDismissableLayer } from '../context/DismissableLayerContext.jsx';
 import nammakkalLogo from '../assets/nammakkal-whiteColor-logo.png';
 import NotificationMenu from '../components/citizen/NotificationMenu.jsx';
+import ProfileAvatar from '../components/citizen/ProfileAvatar.jsx';
 import { useTranslation } from '../i18n/LocaleProvider.jsx';
-
-function getCitizenInitials(name) {
-  const words = typeof name === 'string' ? name.trim().split(/\s+/).filter(Boolean) : [];
-  if (words.length > 1) return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
-  return words[0]?.slice(0, 2).toUpperCase() || 'C';
-}
 
 function SidebarIcon({ name }) {
   const iconProps = {
@@ -88,9 +83,7 @@ export default function CitizenLayout() {
             aria-label={`${displayName || citizenType}, ${citizenType}, ${t('navigation.profile')}`}
             className="group hidden min-w-0 items-center gap-3 rounded-xl border border-white/15 bg-white/5 p-3 transition hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e2c77f] lg:flex"
           >
-            <span aria-hidden="true" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#e2c77f]/70 bg-[#e2c77f]/15 text-sm font-semibold tracking-wide text-[#f4d88e]">
-              {getCitizenInitials(displayName)}
-            </span>
+            <ProfileAvatar user={user} alt={`${displayName || 'Citizen'} profile photo`} className="h-12 w-12 border border-[#e2c77f]/70 bg-[#e2c77f]/15 text-sm text-[#f4d88e]" />
             <span className="min-w-0 flex-1 text-left">
               <span title={displayName || undefined} className="block truncate text-sm font-semibold text-white">{displayName || citizenType}</span>
               <span className="block truncate text-xs text-white/70">{citizenType}</span>

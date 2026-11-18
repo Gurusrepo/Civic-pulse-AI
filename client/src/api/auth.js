@@ -25,6 +25,23 @@ export async function updateProfile(profile) {
   return response.data.user;
 }
 
+export async function uploadProfileImage(file, onUploadProgress) {
+  const formData = new FormData();
+  formData.append('photo', file);
+  const response = await apiClient.post('/auth/profile/avatar', formData, { onUploadProgress });
+  return { user: response.data.user, profileImageUrl: response.data.profileImageUrl };
+}
+
+export async function getProfileImageUrl() {
+  const response = await apiClient.get('/auth/profile/avatar');
+  return response.data.url;
+}
+
+export async function removeProfileImage() {
+  const response = await apiClient.delete('/auth/profile/avatar');
+  return response.data.user;
+}
+
 // Shares an in-flight current-user request between StrictMode effect replays.
 export function getCurrentUser() {
   if (!currentUserRequest) {

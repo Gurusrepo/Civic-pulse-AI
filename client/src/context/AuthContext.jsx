@@ -107,6 +107,24 @@ export function AuthProvider({ children }) {
     return updatedUser;
   }
 
+  async function uploadProfileImage(file, onUploadProgress) {
+    const result = await authApi.uploadProfileImage(file, onUploadProgress);
+    authVersion.current += 1;
+    setUser(result.user);
+    setIsLoading(false);
+    setSessionError(null);
+    return result.profileImageUrl;
+  }
+
+  async function removeProfileImage() {
+    const updatedUser = await authApi.removeProfileImage();
+    authVersion.current += 1;
+    setUser(updatedUser);
+    setIsLoading(false);
+    setSessionError(null);
+    return updatedUser;
+  }
+
   // Clears local auth state even when the backend logout request fails.
   async function logout() {
     authVersion.current += 1;
@@ -132,6 +150,8 @@ export function AuthProvider({ children }) {
     register,
     login,
     updateProfile,
+    uploadProfileImage,
+    removeProfileImage,
     logout,
     retrySession
   };
