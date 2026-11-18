@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.jsx';
 import nammakkalLogo from '../../assets/nammakkal-logo.png';
 import { getApiErrorMessage } from '../../api/errors.js';
+import { isValidEmail } from '../../utils/validation.js';
 
 const roleLandingRoutes = {
   CITIZEN: '/citizen',
@@ -17,7 +18,7 @@ function getRegistrationError({ name, email, password, confirmPassword }) {
   const passwordBytes = new TextEncoder().encode(password).length;
 
   if (cleanName.length < 1 || cleanName.length > 100) return 'Enter a name between 1 and 100 characters.';
-  if (cleanEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) return 'Enter a valid email address.';
+  if (cleanEmail.length > 254 || !isValidEmail(cleanEmail)) return 'Enter a valid email address.';
   if (password.length < 10 || password.length > 72 || passwordBytes > 72) return 'Your password must be 10 to 72 characters and no more than 72 bytes.';
   if (password !== confirmPassword) return 'The passwords do not match.';
   return '';

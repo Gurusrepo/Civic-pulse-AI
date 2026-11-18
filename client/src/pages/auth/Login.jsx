@@ -21,13 +21,15 @@ function SessionLoading() {
 
 // Provides the branded sign-in form and routes users according to their backend role.
 export default function Login() {
-  const { user, isAuthenticated, isLoading, sessionError, login } = useAuth();
+  const { user, isAuthenticated, isLoading, sessionError, logoutWarning, login, logout } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRetryingLogout, setIsRetryingLogout] = useState(false);
+  const [logoutRetryMessage, setLogoutRetryMessage] = useState('');
 
   // Sends authenticated visitors directly to the landing page for their role.
   useEffect(() => {
@@ -53,6 +55,20 @@ export default function Login() {
       setErrorMessage(getApiErrorMessage(error, 'We could not sign you in. Check your details and try again.'));
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleRetryLogout() {
+    setErrorMessage('');
+    setLogoutRetryMessage('');
+    setIsRetryingLogout(true);
+    try {
+      await logout();
+      setLogoutRetryMessage('The server confirmed sign out.');
+    } catch (error) {
+      setErrorMessage(getApiErrorMessage(error, 'The server could not confirm sign out. Try again when your connection is available.'));
+    } finally {
+      setIsRetryingLogout(false);
     }
   }
 
@@ -102,6 +118,11 @@ export default function Login() {
           </div>
 
           {sessionError && <p role="status" className="mb-5 rounded-xl border border-[#e7d9b4] bg-[#fff9e9] px-4 py-3 text-sm text-[#725a23]">We could not verify an existing session. You can still try signing in.</p>}
+          {logoutWarning && <div role="status" className="mb-5 rounded-xl border border-[#e7d9b4] bg-[#fff9e9] px-4 py-3 text-sm text-[#725a23]">
+            <p>Your local session was cleared, but the server could not confirm sign out. The session cookie may remain valid until the server can clear it.</p>
+            <button type="button" onClick={handleRetryLogout} disabled={isRetryingLogout} className="mt-3 min-h-10 rounded-lg font-semibold underline underline-offset-2 disabled:opacity-60">{isRetryingLogout ? 'Retrying sign out...' : 'Retry sign out'}</button>
+          </div>}
+          {logoutRetryMessage && <p role="status" className="mb-5 rounded-xl border border-[#d4e2d3] bg-[#f2f8f1] px-4 py-3 text-sm text-[#385743]">{logoutRetryMessage}</p>}
           {errorMessage && <p role="alert" className="mb-5 rounded-xl border border-[#e9c9c2] bg-[#fff5f2] px-4 py-3 text-sm text-[#8b3c2d]">{errorMessage}</p>}
 
             <form className="space-y-5" onSubmit={handleSubmit} aria-busy={isSubmitting}>
@@ -111,14 +132,53 @@ export default function Login() {
             </div>
             <div>
               <label htmlFor="login-password" className="mb-2 block text-sm font-medium text-[#34483a]">Password</label>
-              <div className="relative">
-                <input id="login-password" name="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" maxLength={72} required value={password} onChange={handlePasswordChange} className="w-full rounded-xl border border-[#d9ded5] bg-white px-4 py-3.5 pr-20 text-sm text-[#24362a] outline-none transition placeholder:text-[#9aa39b] focus:border-[#477454] focus:ring-4 focus:ring-[#477454]/10" placeholder="Enter your password" />
-                <button type="button" onClick={handlePasswordVisibility} aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} className="absolute inset-y-0 right-2 z-10 grid w-10 place-items-center rounded-lg text-[#426c4d] transition hover:bg-[#edf2eb] hover:text-[#1d4933] focus:outline-none focus:ring-2 focus:ring-[#477454]/40">
-                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
-                    {showPassword ? <><path d="M3 3l18 18" /><path d="M10.6 10.6a2 2 0 002.8 2.8" /><path d="M9.9 5.2A11.7 11.7 0 0112 5c5.2 0 8.8 4.4 10 7-.4.9-1.2 2.1-2.3 3.2M6.2 6.2C3.9 7.5 2.5 9.5 2 12c.6 1.4 1.9 3.1 3.8 4.4A10.4 10.4 0 0012 19c1 0 1.9-.1 2.8-.4" /></> : <><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>}
-                  </svg>
-                </button>
-              </div>
+            <div className="relative">
+              <input
+                id="login-password"
+                name="password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                maxLength={72}
+                required
+                value={password}
+                onChange={handlePasswordChange}
+                className="password-input w-full rounded-xl border border-[#d9ded5] bg-white px-4 py-3.5 pr-12 text-sm text-[#24362a] outline-none transition placeholder:text-[#9aa39b] focus:border-[#477454] focus:ring-4 focus:ring-[#477454]/10"
+                placeholder="Enter your password"
+              />
+
+              <button
+                type="button"
+                onClick={handlePasswordVisibility}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                className="absolute inset-y-0 right-3 z-10 grid w-8 place-items-center rounded-full text-[#426c4d] transition-colors hover:bg-[#edf2eb] hover:text-[#1d4933] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#477454]/40"
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-5 w-5"
+                >
+                  {showPassword ? (
+                    <>
+                      <path d="M3 3l18 18" />
+                      <path d="M10.6 10.6a2 2 0 002.8 2.8" />
+                      <path d="M9.9 5.2A11.7 11.7 0 0112 5c5.2 0 8.8 4.4 10 7-.4.9-1.2 2.1-2.3 3.2M6.2 6.2C3.9 7.5 2.5 9.5 2 12c.6 1.4 1.9 3.1 3.8 4.4A10.4 10.4 0 0012 19c1 0 1.9-.1 2.8-.4" />
+                    </>
+                  ) : (
+                    <>
+                      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </>
+                  )}
+                </svg>
+              </button>
+            </div>
+
             </div>
             <button type="submit" disabled={isSubmitting} className="flex w-full items-center justify-center rounded-xl bg-[#1d4933] px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#163b29] focus:outline-none focus:ring-4 focus:ring-[#477454]/25 disabled:cursor-not-allowed disabled:opacity-65">
               {isSubmitting ? 'Signing you in...' : 'Sign in'}

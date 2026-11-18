@@ -20,3 +20,14 @@ button,
 a {
   font: inherit;
 }
+
+/* Hide browser's native password visibility controls */
+.password-input::-ms-reveal,
+.password-input::-ms-clear {
+  display: none;
+}
+
+.password-input::-webkit-credentials-auto-fill-button {
+  visibility: hidden;
+  pointer-events: none;
+}

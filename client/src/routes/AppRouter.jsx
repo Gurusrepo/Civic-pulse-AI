@@ -12,6 +12,11 @@ import CitizenDashboard from '../pages/citizen/CitizenDashboard.jsx';
 import MyComplaints from '../pages/citizen/MyComplaints.jsx';
 import ReportComplaint from '../pages/citizen/ReportComplaint.jsx';
 import ComplaintDetails from '../pages/citizen/ComplaintDetails.jsx';
+import Announcements from '../pages/citizen/Announcements.jsx';
+import AnnouncementDetails from '../pages/citizen/AnnouncementDetails.jsx';
+import Profile from '../pages/citizen/Profile.jsx';
+import HelpSupport from '../pages/citizen/HelpSupport.jsx';
+import ManageAnnouncements from '../pages/admin/ManageAnnouncements.jsx';
 
 function HomeRoute() {
   const { user, isLoading } = useAuth();
@@ -40,7 +45,11 @@ export const router = createBrowserRouter([
       { index: true, element: <CitizenDashboard /> },
       { path: 'complaints', element: <MyComplaints /> },
       { path: 'complaints/new', element: <ReportComplaint /> },
-      { path: 'complaints/:id', element: <ComplaintDetails /> }
+      { path: 'complaints/:id', element: <ComplaintDetails /> },
+      { path: 'announcements', element: <Announcements /> },
+      { path: 'announcements/:id', element: <AnnouncementDetails /> },
+      { path: 'profile', element: <Profile /> },
+      { path: 'help', element: <HelpSupport /> }
     ]
   },
   {
@@ -62,6 +71,10 @@ export const router = createBrowserRouter([
         </RoleRoute>
       </ProtectedRoute>
     )
+  },
+  {
+    path: '/admin/announcements',
+    element: <ProtectedRoute><RoleRoute allowedRoles={['ADMIN']}><ManageAnnouncements /></RoleRoute></ProtectedRoute>
   },
   {
     path: '*',

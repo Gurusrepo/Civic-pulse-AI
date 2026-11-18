@@ -14,7 +14,16 @@ export default function ComplaintCard({ complaint }) {
           <p className="text-xs font-semibold uppercase tracking-wide text-[#758077]">Report #{complaint.id} · {formatDate(complaint.createdAt)}</p>
           <h3 className="mt-2 break-words text-lg font-semibold text-[#20382a]">{complaint.title}</h3>
         </div>
-        <StatusBadge status={complaint.issueStatus ?? complaint.status} />
+        <dl className="flex shrink-0 flex-wrap gap-2">
+          <div className="space-y-1">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#68736a]">Civic issue</dt>
+            <dd><StatusBadge status={complaint.issueStatus} /></dd>
+          </div>
+          <div className="space-y-1">
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-[#68736a]">Your complaint</dt>
+            <dd><StatusBadge status={complaint.status} /></dd>
+          </div>
+        </dl>
       </div>
       <p className="mt-3 line-clamp-2 text-sm leading-6 text-[#68736a]">{complaint.description}</p>
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#edf0e9] pt-4">

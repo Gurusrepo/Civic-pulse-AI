@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { getAiAssessment, getComplaint, getResolution, submitResolutionVerification } from '../../api/complaints.js';
+import { getAiAssessment, getComplaint, getComplaintTimeline, getResolution, submitResolutionVerification } from '../../api/complaints.js';
 import { getApiErrorMessage } from '../../api/errors.js';
 import { EmptyState, ErrorState, LoadingState } from '../../components/AsyncState.jsx';
 import StatusBadge from '../../components/citizen/StatusBadge.jsx';
+import IssueTimeline from '../../components/citizen/IssueTimeline.jsx';
 import { requestOnce } from '../../utils/requestOnce.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
@@ -127,6 +128,10 @@ export default function ComplaintDetails() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
+  const [timeline, setTimeline] = useState(null);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [timelineError, setTimelineError] = useState('');
+  const [timelineRetry, setTimelineRetry] = useState(0);
   const [assessment, setAssessment] = useState(null);
   const [assessmentLoading, setAssessmentLoading] = useState(false);
   const [assessmentError, setAssessmentError] = useState('');
@@ -141,12 +146,30 @@ export default function ComplaintDetails() {
     setIsLoading(true);
     setError('');
     setComplaint(null);
-    requestOnce(`citizen:${user?.id}:complaint:${id}`, () => getComplaint(id))
+    setTimeline(null);
+    setTimelineError('');
+    setAssessment(null);
+    setAssessmentError('');
+    setResolution(null);
+    setResolutionError('');
+    requestOnce(`citizen:${user?.id}:complaint:${id}:${retry}`, () => getComplaint(id))
       .then((result) => { if (active) setComplaint(result.complaint); })
       .catch((requestError) => { if (active) setError(getApiErrorMessage(requestError, 'We could not load this complaint.')); })
       .finally(() => { if (active) setIsLoading(false); });
     return () => { active = false; };
   }, [id, retry, user?.id]);
+
+  useEffect(() => {
+    if (!complaint) return undefined;
+    let active = true;
+    setTimelineLoading(true);
+    setTimelineError('');
+    requestOnce(`citizen:${user?.id}:timeline:${id}:${timelineRetry}`, () => getComplaintTimeline(id))
+      .then((result) => { if (active) setTimeline(Array.isArray(result.items) ? result.items : []); })
+      .catch((requestError) => { if (active) setTimelineError(getApiErrorMessage(requestError, 'Complaint timeline could not be loaded.')); })
+      .finally(() => { if (active) setTimelineLoading(false); });
+    return () => { active = false; };
+  }, [complaint, id, timelineRetry, user?.id]);
 
   useEffect(() => {
     if (!complaint) return undefined;
@@ -199,13 +222,12 @@ export default function ComplaintDetails() {
       <article className="space-y-5 rounded-2xl border border-[#e5e2d5] bg-white p-5 shadow-sm sm:p-7">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><p className="text-xs font-semibold uppercase tracking-wide text-[#758077]">Complaint #{complaint.id} · Submitted {formatDate(complaint.createdAt)}</p><h1 className="mt-2 text-2xl font-semibold tracking-tight text-[#20382a] sm:text-3xl">{complaint.title}</h1></div>
-          <StatusBadge status={complaint.issueStatus ?? complaint.status} />
         </div>
         <p className="whitespace-pre-wrap text-sm leading-7 text-[#526258]">{complaint.description}</p>
         <dl className="grid gap-4 border-t border-[#edf0e9] pt-5 sm:grid-cols-3">
-          <InfoField label="Issue status">{complaint.issueStatus?.replaceAll('_', ' ') ?? 'Unavailable'}</InfoField>
+          <InfoField label="Civic issue status">{complaint.issueStatus ? <StatusBadge status={complaint.issueStatus} /> : 'Unavailable'}</InfoField>
           <InfoField label="Community reports">{complaint.reportCount ?? 'Unavailable'}</InfoField>
-          <InfoField label="Complaint status">{complaint.status?.replaceAll('_', ' ') ?? 'Unavailable'}</InfoField>
+          <InfoField label="Your complaint status">{complaint.status ? <StatusBadge status={complaint.status} /> : 'Unavailable'}</InfoField>
         </dl>
       </article>
 
@@ -222,6 +244,7 @@ export default function ComplaintDetails() {
         {Array.isArray(complaint.media) && complaint.media.length > 0 ? <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{complaint.media.map((media) => <a key={media.id} href={media.url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border border-[#e5e2d5] focus:outline-none focus:ring-4 focus:ring-[#477454]/20"><img src={media.url} alt={`Photo attached to complaint ${complaint.id}`} className="h-56 w-full object-cover" /><span className="block px-3 py-2 text-xs text-[#68736a]">{media.mimeType} · {Math.ceil(media.byteSize / 1024)} KB</span></a>)}</div> : <EmptyState>No complaint photo was returned.</EmptyState>}
       </section>
 
+      <IssueTimeline items={timeline} isLoading={timelineLoading} error={timelineError} onRetry={() => setTimelineRetry((value) => value + 1)} />
       <AssessmentPanel assessment={assessment} isLoading={assessmentLoading} error={assessmentError} onRefresh={() => setAssessmentRetry((value) => value + 1)} />
       <ResolutionPanel complaintId={id} issueStatus={complaint.issueStatus} resolution={resolution} isLoading={resolutionLoading} error={resolutionError} onRefresh={() => setResolutionRetry((value) => value + 1)} onVerified={updateVerification} />
     </div>

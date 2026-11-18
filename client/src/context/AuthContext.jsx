@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import * as authApi from '../api/auth.js';
+import { SESSION_EXPIRED_EVENT } from '../api/client.js';
 
 const AuthContext = createContext(null);
 
@@ -8,8 +9,21 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [sessionError, setSessionError] = useState(null);
+  const [logoutWarning, setLogoutWarning] = useState(false);
   const authVersion = useRef(0);
   const [restoreAttempt, setRestoreAttempt] = useState(0);
+
+  useEffect(() => {
+    function handleExpiredSession() {
+      authVersion.current += 1;
+      setUser(null);
+      setSessionError(null);
+      setIsLoading(false);
+    }
+
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleExpiredSession);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, handleExpiredSession);
+  }, []);
 
   useEffect(
     // Restores the existing cookie session and ignores stale responses after auth actions.
@@ -68,6 +82,7 @@ export function AuthProvider({ children }) {
     setUser(registeredUser);
     setIsLoading(false);
     setSessionError(null);
+    setLogoutWarning(false);
     return registeredUser;
   }
 
@@ -78,14 +93,29 @@ export function AuthProvider({ children }) {
     setUser(authenticatedUser);
     setIsLoading(false);
     setSessionError(null);
+    setLogoutWarning(false);
     return authenticatedUser;
+  }
+
+  // Adopts the public user returned after a profile update.
+  async function updateProfile(profile) {
+    const updatedUser = await authApi.updateProfile(profile);
+    authVersion.current += 1;
+    setUser(updatedUser);
+    setIsLoading(false);
+    setSessionError(null);
+    return updatedUser;
   }
 
   // Clears local auth state even when the backend logout request fails.
   async function logout() {
     authVersion.current += 1;
+    setLogoutWarning(false);
     try {
       await authApi.logout();
+    } catch (error) {
+      setLogoutWarning(true);
+      throw error;
     } finally {
       setUser(null);
       setSessionError(null);
@@ -98,8 +128,10 @@ export function AuthProvider({ children }) {
     isAuthenticated: Boolean(user),
     isLoading,
     sessionError,
+    logoutWarning,
     register,
     login,
+    updateProfile,
     logout,
     retrySession
   };

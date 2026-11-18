@@ -30,7 +30,10 @@ export default function PlaceholderPage() {
         </p>
         {logoutError && <p role="status" className="mt-4 text-sm text-[#725a23]">{logoutError}</p>}
         {user ? (
-          <button type="button" onClick={handleLogout} className="mt-8 inline-flex min-h-11 rounded-full bg-[#1d4933] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#153a28] focus:outline-none focus:ring-4 focus:ring-[#477454]/25">Sign out</button>
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            {user.role === 'ADMIN' && <Link to="/admin/announcements" className="inline-flex min-h-11 items-center rounded-full border border-[#cfd8ce] px-6 py-3 text-sm font-semibold text-[#1d4933] hover:bg-[#f7faf5]">Manage announcements</Link>}
+            <button type="button" onClick={handleLogout} className="inline-flex min-h-11 rounded-full bg-[#1d4933] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#153a28] focus:outline-none focus:ring-4 focus:ring-[#477454]/25">Sign out</button>
+          </div>
         ) : (
           <Link className="mt-8 inline-flex min-h-11 rounded-full bg-[#1d4933] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#153a28] focus:outline-none focus:ring-4 focus:ring-[#477454]/25" to="/login">Continue to sign in</Link>
         )}

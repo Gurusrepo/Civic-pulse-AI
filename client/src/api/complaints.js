@@ -3,7 +3,9 @@ import apiClient from './client.js';
 const body = (request) => request.then(({ data }) => data);
 
 export function listComplaints(params = {}) { return body(apiClient.get('/complaints', { params })); }
+export function getComplaintSummary() { return body(apiClient.get('/complaints/summary')); }
 export function getComplaint(id) { return body(apiClient.get(`/complaints/${id}`)); }
+export function getComplaintTimeline(id) { return body(apiClient.get(`/complaints/${id}/timeline`)); }
 export function getAiAssessment(id) { return body(apiClient.get(`/complaints/${id}/ai-assessment`)); }
 export function getResolution(id) { return body(apiClient.get(`/complaints/${id}/resolution`)); }
 export function submitResolutionVerification(id, payload) {

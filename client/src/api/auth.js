@@ -19,6 +19,12 @@ export async function login(credentials) {
   return response.data.user;
 }
 
+// Updates the current authenticated user's public profile fields.
+export async function updateProfile(profile) {
+  const response = await apiClient.patch('/auth/profile', profile);
+  return response.data.user;
+}
+
 // Shares an in-flight current-user request between StrictMode effect replays.
 export function getCurrentUser() {
   if (!currentUserRequest) {

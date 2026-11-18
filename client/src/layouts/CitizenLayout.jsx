@@ -1,52 +1,166 @@
 import { useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
-import { getApiErrorMessage } from '../api/errors.js';
+import { useDismissableLayer } from '../context/DismissableLayerContext.jsx';
 import nammakkalLogo from '../assets/nammakkal-whiteColor-logo.png';
+import NotificationMenu from '../components/citizen/NotificationMenu.jsx';
+import { useTranslation } from '../i18n/LocaleProvider.jsx';
 
-const navClass = ({ isActive }) => `inline-flex min-h-11 items-center whitespace-nowrap border-b-2 px-3 text-sm font-medium transition ${isActive ? 'border-[#d4ae58] text-white' : 'border-transparent text-white/75 hover:text-white'}`;
+function getCitizenInitials(name) {
+  const words = typeof name === 'string' ? name.trim().split(/\s+/).filter(Boolean) : [];
+  if (words.length > 1) return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+  return words[0]?.slice(0, 2).toUpperCase() || 'C';
+}
+
+function SidebarIcon({ name }) {
+  const iconProps = {
+    'aria-hidden': true,
+    className: 'h-5 w-5 shrink-0',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    strokeWidth: 1.8,
+    viewBox: '0 0 24 24'
+  };
+
+  switch (name) {
+    case 'overview':
+      return <svg {...iconProps}><path d="m3 10 9-7 9 7" /><path d="M5.5 9v11h13V9M9.5 20v-6h5v6" /></svg>;
+    case 'report':
+      return <svg {...iconProps}><circle cx="12" cy="12" r="9" /><path d="M12 8v8M8 12h8" /></svg>;
+    case 'complaints':
+      return <svg {...iconProps}><rect x="5" y="3.5" width="14" height="17" rx="2" /><path d="M9 8h6M9 12h6M9 16h4" /></svg>;
+    case 'announcements':
+      return <svg {...iconProps}><path d="M3 11v2h3l10 5V6L6 11H3Z" /><path d="m6 13 1.5 5M19 9a4 4 0 0 1 0 6" /></svg>;
+    case 'profile':
+      return <svg {...iconProps}><circle cx="12" cy="8" r="3.5" /><path d="M5 20a7 7 0 0 1 14 0" /></svg>;
+    case 'help':
+      return <svg {...iconProps}><circle cx="12" cy="12" r="9" /><path d="M9.6 9a2.5 2.5 0 1 1 4.3 1.7c-1.2 1.1-1.9 1.5-1.9 3M12 17.5h.01" /></svg>;
+    case 'signOut':
+      return <svg {...iconProps}><path d="M10 17l5-5-5-5M15 12H3" /><path d="M12 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6" /></svg>;
+    default:
+      return null;
+  }
+}
 
 export default function CitizenLayout() {
   const { user, logout } = useAuth();
+  const { t } = useTranslation();
+  const {
+    isOpen: isMoreOpen,
+    triggerRef: moreTriggerRef,
+    panelRef: morePanelRef,
+    toggle: toggleMoreMenu,
+    close: closeMoreMenu
+  } = useDismissableLayer('citizen-more');
   const navigate = useNavigate();
-  const [logoutError, setLogoutError] = useState('');
   const [isSigningOut, setIsSigningOut] = useState(false);
 
   async function handleLogout() {
-    setLogoutError('');
     setIsSigningOut(true);
+    closeMoreMenu();
     try {
       await logout();
       navigate('/login', { replace: true });
-    } catch (error) {
-      setLogoutError(getApiErrorMessage(error, 'You have been signed out here, but the server could not confirm logout.'));
+    } catch {
+      navigate('/login', { replace: true });
     } finally {
       setIsSigningOut(false);
     }
   }
 
+  const sidebarLinkClass = ({ isActive }) => `flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e2c77f] ${isActive ? 'bg-white/15 text-white' : 'text-white/75 hover:bg-white/10 hover:text-white'}`;
+  const mobileLinkClass = ({ isActive }) => `flex min-h-14 flex-1 items-center justify-center px-1 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1d4933] ${isActive ? 'text-[#1d4933]' : 'text-[#68736a]'}`;
+  const displayName = typeof user?.name === 'string' ? user.name.trim() : '';
+  const citizenType = user?.role === 'CITIZEN' ? t('navigation.citizenType') : '';
+
   return (
-    <div className="min-h-screen bg-[#f7f6ef]">
-      <header className="bg-[#173d2b] text-white shadow-sm">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
-          <Link to="/citizen" className="inline-flex rounded-lg px-2 py-1 transition-transform duration-200 ease-out hover:scale-[1.03] hover:bg-transparent active:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+    <div className="min-h-screen bg-[#f7f6ef] lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
+      <header className="relative z-30 bg-[#173d2b] text-white shadow-sm lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:mx-0 lg:max-w-none lg:flex-col lg:items-stretch lg:px-5 lg:py-7">
+          <Link to="/citizen" onClick={closeMoreMenu} className="inline-flex w-fit shrink-0 rounded-lg px-1 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-white">
             <img src={nammakkalLogo} alt="NAMMAKKAL civic platform" className="h-8 w-auto max-w-36 object-contain sm:h-10 sm:max-w-44" />
           </Link>
-          <div className="flex items-center gap-3">
-            <span className="hidden max-w-48 truncate text-sm text-white/80 sm:inline font-serif" title={user?.name}>{user?.name}</span>
-            <button type="button" onClick={handleLogout} disabled={isSigningOut} className="min-h-10 rounded-lg border border-white/25 px-3 text-sm font-semibold transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-[#e2c77f] disabled:opacity-60">{isSigningOut ? 'Signing out...' : 'Sign out'}</button>
-          </div>
-          <nav aria-label="Citizen navigation" className="order-3 flex w-full gap-1 overflow-x-auto border-t border-white/15 sm:order-none sm:w-auto sm:border-0">
-            <NavLink to="/citizen" end className={navClass}>Overview</NavLink>
-            <NavLink to="/citizen/complaints" end className={navClass}>My complaints</NavLink>
-            <NavLink to="/citizen/complaints/new" className={navClass}>Report an issue</NavLink>
+          <Link
+            to="/citizen/profile"
+            onClick={closeMoreMenu}
+            aria-label={`${displayName || citizenType}, ${citizenType}, ${t('navigation.profile')}`}
+            className="group hidden min-w-0 items-center gap-3 rounded-xl border border-white/15 bg-white/5 p-3 transition hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e2c77f] lg:flex"
+          >
+            <span aria-hidden="true" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#e2c77f]/70 bg-[#e2c77f]/15 text-sm font-semibold tracking-wide text-[#f4d88e]">
+              {getCitizenInitials(displayName)}
+            </span>
+            <span className="min-w-0 flex-1 text-left">
+              <span title={displayName || undefined} className="block truncate text-sm font-semibold text-white">{displayName || citizenType}</span>
+              <span className="block truncate text-xs text-white/70">{citizenType}</span>
+            </span>
+            <svg aria-hidden="true" className="h-4 w-4 shrink-0 text-white/60 transition group-hover:translate-x-0.5 group-hover:text-white" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </Link>
+
+          <nav aria-label="Citizen navigation" className="flex items-center gap-2 lg:mt-6 lg:flex-1 lg:flex-col lg:items-stretch lg:gap-1">
+            <div className="hidden lg:block">
+              <NavLink to="/citizen" end className={sidebarLinkClass}><SidebarIcon name="overview" /><span className="min-w-0 truncate">{t('navigation.overview')}</span></NavLink>
+            </div>
+            <div className="hidden lg:block">
+              <NavLink to="/citizen/complaints/new" className={sidebarLinkClass}><SidebarIcon name="report" /><span className="min-w-0 truncate">{t('navigation.report')}</span></NavLink>
+            </div>
+            <div className="hidden lg:block">
+              <NavLink to="/citizen/complaints" end className={sidebarLinkClass}><SidebarIcon name="complaints" /><span className="min-w-0 truncate">{t('navigation.complaints')}</span></NavLink>
+            </div>
+            <div className="hidden lg:block">
+              <NavLink to="/citizen/announcements" className={sidebarLinkClass}><SidebarIcon name="announcements" /><span className="min-w-0 truncate">{t('navigation.announcements')}</span></NavLink>
+            </div>
+            <div>
+              <NotificationMenu />
+            </div>
+            <div className="hidden lg:block">
+              <NavLink to="/citizen/profile" className={sidebarLinkClass}><SidebarIcon name="profile" /><span className="min-w-0 truncate">{t('navigation.profile')}</span></NavLink>
+            </div>
+            <div className="hidden lg:block">
+              <NavLink to="/citizen/help" className={sidebarLinkClass}><SidebarIcon name="help" /><span className="min-w-0 truncate">{t('navigation.help')}</span></NavLink>
+            </div>
+            <button
+              type="button"
+              ref={moreTriggerRef}
+              onClick={toggleMoreMenu}
+              aria-expanded={isMoreOpen}
+              aria-controls="citizen-secondary-menu"
+              className="inline-flex min-h-10 items-center rounded-lg border border-white/25 px-3 text-sm font-semibold text-white transition hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e2c77f] lg:hidden"
+            >
+              {t('navigation.more')}
+            </button>
           </nav>
+
+          <button type="button" onClick={handleLogout} disabled={isSigningOut} className="hidden min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold text-white/80 transition hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e2c77f] disabled:opacity-60 lg:flex">
+            <SidebarIcon name="signOut" />
+            <span>{isSigningOut ? t('navigation.signingOut') : t('navigation.signOut')}</span>
+          </button>
         </div>
+
+        {isMoreOpen && (
+          <div ref={morePanelRef} id="citizen-secondary-menu" className="absolute right-4 top-full z-50 mt-2 w-64 rounded-2xl border border-[#e5e2d5] bg-white p-2 text-[#24362a] shadow-xl lg:hidden">
+            <NavLink to="/citizen/announcements" onClick={closeMoreMenu} className={({ isActive }) => `flex min-h-11 items-center rounded-lg px-3 text-sm font-medium ${isActive ? 'bg-[#edf2eb] text-[#1d4933]' : 'hover:bg-[#f7f8f5]'}`}>{t('navigation.announcements')}</NavLink>
+            <NavLink to="/citizen/help" onClick={closeMoreMenu} className={({ isActive }) => `flex min-h-11 items-center rounded-lg px-3 text-sm font-medium ${isActive ? 'bg-[#edf2eb] text-[#1d4933]' : 'hover:bg-[#f7f8f5]'}`}>{t('navigation.help')}</NavLink>
+            <button type="button" onClick={handleLogout} disabled={isSigningOut} className="flex min-h-11 w-full items-center rounded-lg px-3 text-left text-sm font-medium text-[#8b3c2d] hover:bg-[#fff5f2] disabled:opacity-60">
+              {isSigningOut ? t('navigation.signingOut') : t('navigation.signOut')}
+            </button>
+          </div>
+        )}
       </header>
-      <main className="mx-auto w-full max-w-7xl px-4 py-7 sm:px-6 sm:py-9 lg:px-8">
-        {logoutError && <p role="status" className="mb-5 rounded-xl border border-[#e7d9b4] bg-[#fff9e9] px-4 py-3 text-sm text-[#725a23]">{logoutError}</p>}
+
+      <main className="mx-auto w-full min-w-0 max-w-7xl px-4 pb-28 pt-6 sm:px-6 sm:pt-8 lg:mx-0 lg:px-10 lg:pb-10">
         <Outlet />
       </main>
+
+      <nav aria-label={t('navigation.mobile')} className="fixed inset-x-0 bottom-0 z-40 flex border-t border-[#d9ded5] bg-white/95 px-2 pt-1 shadow-[0_-4px_18px_rgba(23,61,43,0.08)] backdrop-blur lg:hidden" style={{ paddingBottom: 'max(0.25rem, env(safe-area-inset-bottom))' }}>
+        <NavLink to="/citizen" end className={mobileLinkClass}>{t('navigation.home')}</NavLink>
+        <NavLink to="/citizen/complaints/new" className={mobileLinkClass}>{t('navigation.reportShort')}</NavLink>
+        <NavLink to="/citizen/complaints" end className={mobileLinkClass}>{t('navigation.complaintsShort')}</NavLink>
+        <NavLink to="/citizen/profile" className={mobileLinkClass}>{t('navigation.profileShort')}</NavLink>
+      </nav>
     </div>
   );
 }

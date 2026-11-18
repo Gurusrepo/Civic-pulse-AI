@@ -121,7 +121,6 @@ export default function ReportComplaint() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <Link to="/citizen" className="text-sm font-semibold text-[#1d4933] underline decoration-[#d4ae58] underline-offset-4 focus:outline-none focus:ring-2 focus:ring-[#477454]/30">Back to overview</Link>
         <p className="mt-5 text-xs font-semibold uppercase tracking-[0.16em] text-[#9a7832]">Make your neighbourhood better</p>
         <h1 className="mt-1 text-3xl font-semibold tracking-tight text-[#20382a]">Report a complaint</h1>
         <p className="mt-2 text-sm leading-6 text-[#68736a]">Add clear details, where the issue is, and a photo. Your report will be linked to your account.</p>
