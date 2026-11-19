@@ -45,8 +45,9 @@ let baseUrl;
 let ids;
 
 function addUser(id, role, displayName = `Resolution User ${id}`) {
-  db.prepare(`INSERT INTO users(id,display_name,email,password_hash,role) VALUES(?,?,?,'hash',?)`)
-    .run(id, displayName, `resolution-${id}@example.test`, role);
+  db.prepare(`INSERT INTO users(id,display_name,email,password_hash,role,email_verified) VALUES(?,?,?,'hash',?,?)`)
+    .run(id, displayName, `resolution-${id}@example.test`, role,
+      role === 'CITIZEN' ? 1 : 0);
 }
 function token(userId) {
   return jwt.sign({}, process.env.JWT_SECRET, { algorithm: 'HS256', subject: String(userId),
@@ -212,6 +213,12 @@ test('reject keeps RESOLVED assignment and is final; citizens and officers canno
   assert.equal((await rejected.json()).review.issueStatus, 'RESOLVED');
   assert.equal(db.prepare('SELECT status,assigned_team_id FROM civic_issues WHERE id=?').get(issue.issueId).status, 'RESOLVED');
   assert.equal(db.prepare('SELECT assigned_team_id FROM civic_issues WHERE id=?').get(issue.issueId).assigned_team_id, ids.team);
+  assert.deepEqual(db.prepare(`SELECT user_id,notification_type,title
+    FROM notifications WHERE event_key LIKE ? ORDER BY user_id`).all(`issue:${issue.issueId}:dispute-review:%`), [{
+    user_id: 2,
+    notification_type: 'DISPUTE_REVIEWED',
+    title: 'Your dispute was rejected'
+  }]);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM civic_issue_team_assignment_events WHERE civic_issue_id=? AND event_type=\'UNASSIGNED\'').get(issue.issueId).count, 0);
   assert.equal((await request(`/api/complaints/${issue.complaint1b}/resolution-verification`, {
     method: 'POST', body: { decision: 'CONFIRM' }
@@ -232,6 +239,16 @@ test('accept reopens, unassigns transactionally, and preserves assignment and re
   const review = (await response.json()).review;
   assert.equal(review.decision, 'ACCEPTED');
   assert.equal(review.issueStatus, 'OPEN');
+  assert.deepEqual(db.prepare(`SELECT user_id,notification_type,title
+    FROM notifications WHERE event_key LIKE ? ORDER BY user_id`).all(`issue:${issue.issueId}:dispute-review:%`), [{
+    user_id: 2,
+    notification_type: 'DISPUTE_REVIEWED',
+    title: 'Your dispute was accepted'
+  }, {
+    user_id: 3,
+    notification_type: 'DISPUTE_REVIEWED',
+    title: 'Your dispute was accepted'
+  }]);
   const current = db.prepare('SELECT status,assigned_team_id,routing_department,assigned_officer_id FROM civic_issues WHERE id=?').get(issue.issueId);
   assert.deepEqual(current, { status: 'OPEN', assigned_team_id: null, routing_department: null, assigned_officer_id: null });
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM civic_issue_team_assignment_events WHERE civic_issue_id=?').get(issue.issueId).count, beforeEvents + 1);

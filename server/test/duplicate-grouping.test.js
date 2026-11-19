@@ -6,7 +6,7 @@ Object.assign(process.env,{NODE_ENV:'test',DATABASE_PATH:path.join(dir,'db.sqlit
 const {db,closeDatabase}=await import('../src/config/database.js'); const {migrateDatabase}=await import('../src/database/migrate.js'); migrateDatabase(db);
 const duplicate=await import('../src/modules/admin/duplicate.service.js'); const {default:app}=await import('../src/app.js');
 let server,baseUrl; let ids={};
-function user(id,role){db.prepare("INSERT INTO users(id,display_name,email,password_hash,role) VALUES(?,?,?,'hash',?)").run(id,`User ${id}`,`user${id}@test.local`,role);}
+function user(id,role){db.prepare("INSERT INTO users(id,display_name,email,password_hash,role,email_verified) VALUES(?,?,?,'hash',?,?)").run(id,`User ${id}`,`user${id}@test.local`,role,role==='CITIZEN'?1:0);}
 function issue(status='OPEN',target=null){return Number(db.prepare('INSERT INTO civic_issues(status,merged_into_issue_id) VALUES(?,?)').run(status,target).lastInsertRowid);}
 function complaint(uid,iid,lat=12.3,lon=45.6,date='2026-11-01T12:00:00.000Z',title='Road damage',description='A pothole in the road by the crossing.'){
  return Number(db.prepare('INSERT INTO complaints(user_id,civic_issue_id,title,description,latitude,longitude,created_at) VALUES(?,?,?,?,?,?,?)').run(uid,iid,title,description,lat,lon,date).lastInsertRowid);

@@ -7,8 +7,12 @@ const formNumber = (schema) => z.string().trim().min(1).refine((value) => Number
 export const createComplaintSchema = z.object({
   title: z.string().trim().min(3).max(160),
   description: z.string().trim().min(10).max(5000),
+
+  address: z.string().trim().min(5).max(300),
+
   latitude: formNumber(z.number().min(-90).max(90)),
   longitude: formNumber(z.number().min(-180).max(180)),
+
   location_accuracy_meters: z.union([
     z.literal(''),
     formNumber(z.number().positive().max(100000))

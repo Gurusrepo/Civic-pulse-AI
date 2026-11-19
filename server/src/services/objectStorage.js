@@ -26,6 +26,14 @@ export async function uploadRepairEvidenceImage(file) {
   return uploadImage(file, 'repair-evidence');
 }
 
+export async function uploadProfileImage(file) {
+  return uploadImage(file, 'profile-images');
+}
+
+export async function uploadSupportAttachment(file) {
+  return uploadImage(file, 'support-attachments');
+}
+
 async function uploadImage(file, prefix) {
   const extension = extensionsByMimeType[file.mimeType];
   if (!extension) {
@@ -70,5 +78,20 @@ export async function deleteObject(objectKey) {
 
 export async function deleteRepairEvidenceObject(objectKey) {
   if (!objectKey.startsWith('repair-evidence/')) throw new Error('Invalid repair evidence object key');
+  return deleteObject(objectKey);
+}
+
+export async function createProfileImageReadUrl(objectKey, mimeType) {
+  if (!objectKey.startsWith('profile-images/')) throw new Error('Invalid profile image object key');
+  return createReadUrl(objectKey, mimeType);
+}
+
+export async function deleteProfileImageObject(objectKey) {
+  if (!objectKey.startsWith('profile-images/')) throw new Error('Invalid profile image object key');
+  return deleteObject(objectKey);
+}
+
+export async function deleteSupportAttachment(objectKey) {
+  if (!objectKey.startsWith('support-attachments/')) throw new Error('Invalid support attachment object key');
   return deleteObject(objectKey);
 }

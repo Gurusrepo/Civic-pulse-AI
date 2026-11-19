@@ -6,13 +6,13 @@ const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const multipart = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: MAX_FILE_SIZE_BYTES,
-    files: 1,
-    fields: 5,
-    parts: 6,
-    fieldNameSize: 100,
-    fieldSize: 10 * 1024
-  }
+  fileSize: MAX_FILE_SIZE_BYTES,
+  files: 1,
+  fields: 10,
+  parts: 11,
+  fieldNameSize: 100,
+  fieldSize: 10 * 1024
+}
 }).single('photo');
 
 export function complaintUpload(req, res, next) {

@@ -16,6 +16,20 @@ export function list(req, res, next) {
   } catch (error) { next(error); }
 }
 
+export function summary(req, res, next) {
+  try {
+    res.json({ summary: complaintService.getComplaintSummary(req.user.id) });
+  } catch (error) { next(error); }
+}
+
+export function timeline(req, res, next) {
+  try {
+    const result = complaintService.getComplaintTimeline(req.user.id, req.params.id);
+    if (!result) return res.status(404).json({ error: 'Complaint not found' });
+    res.json(result);
+  } catch (error) { next(error); }
+}
+
 export async function getById(req, res, next) {
   try {
     const complaint = await complaintService.getComplaint(req.user.id, req.params.id);

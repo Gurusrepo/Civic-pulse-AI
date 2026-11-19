@@ -7,10 +7,60 @@ import * as wardTeamManagement from './migrations/005_ward_team_management.js';
 import * as issueTeamAssignments from './migrations/006_issue_team_assignments.js';
 import * as officerWorkflowEvidence from './migrations/007_officer_workflow_evidence.js';
 import * as citizenResolutionVerification from './migrations/008_citizen_resolution_verification.js';
+import * as announcements from './migrations/009_announcements.js';
+import * as announcementVisibility from './migrations/010_announcement_visibility.js';
+import * as notifications from './migrations/011_notifications.js';
+import * as profileImages from './migrations/012_profile_images.js';
+import * as citizenPreferences from './migrations/013_citizen_preferences.js';
+import * as profileSupportPasswordReset from './migrations/014_profile_support_password_reset.js';
+import * as citizenVerification from './migrations/015_citizen_verification.js';
+import * as accountLifecycle from './migrations/016_account_lifecycle.js';
+import * as authPhoneAndVerification from './migrations/017_auth_phone_and_verification.js';
+import * as verificationChallengeDestination from './migrations/018_verification_challenge_destination.js';
+import * as authOtpPurposesAndRateLimits from './migrations/019_auth_otp_purposes_and_rate_limits.js';
+import * as requiredVerificationDestination from './migrations/020_required_verification_destination.js';
+import * as emailOnlyVerification from './migrations/021_email_only_verification.js';
+import * as registrationOtpDeliveryState from './migrations/022_registration_otp_delivery_state.js';
+import * as complaintAddress from './migrations/023_complaint_address.js';
 
-const migrations = [coreSchema, civicIssues, issueAssignments, issueGrouping, wardTeamManagement, issueTeamAssignments, officerWorkflowEvidence, citizenResolutionVerification];
+export const migrations = [
+  coreSchema,
+  civicIssues,
+  issueAssignments,
+  issueGrouping,
+  wardTeamManagement,
+  issueTeamAssignments,
+  officerWorkflowEvidence,
+  citizenResolutionVerification,
+  announcements,
+  announcementVisibility,
+  notifications,
+  profileImages,
+  citizenPreferences,
+  profileSupportPasswordReset,
+  citizenVerification,
+  accountLifecycle,
+  authPhoneAndVerification,
+  verificationChallengeDestination,
+  authOtpPurposesAndRateLimits,
+  requiredVerificationDestination,
+  emailOnlyVerification,
+  registrationOtpDeliveryState,
+  complaintAddress
+];
 
 export function migrateDatabase(database = defaultDatabase) {
+  const schemaMigrationsExists = Boolean(database.prepare(`SELECT 1 FROM sqlite_master
+    WHERE type='table' AND name='schema_migrations'`).get());
+  const isApplied = schemaMigrationsExists
+    ? database.prepare('SELECT 1 FROM schema_migrations WHERE version = ?')
+    : null;
+  const requiresForeignKeysDisabled = migrations.some((migration) =>
+    migration.requiresForeignKeysDisabled && !isApplied?.get(migration.version));
+  if (requiresForeignKeysDisabled && database.inTransaction) {
+    throw new Error('The email-only verification migration must run outside an existing transaction');
+  }
+
   const applyPendingMigrations = database.transaction(() => {
     database.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
       version TEXT PRIMARY KEY,
@@ -26,8 +76,22 @@ export function migrateDatabase(database = defaultDatabase) {
       recordApplied.run(migration.version);
       applied.push(migration.version);
     }
+    if (requiresForeignKeysDisabled && database.pragma('foreign_key_check').length > 0) {
+      throw new Error('Migration produced foreign key violations');
+    }
     return applied;
   });
 
-  return applyPendingMigrations.immediate();
+  if (requiresForeignKeysDisabled) {
+    database.pragma('foreign_keys = OFF');
+    database.pragma('legacy_alter_table = ON');
+  }
+  try {
+    return applyPendingMigrations.immediate();
+  } finally {
+    if (requiresForeignKeysDisabled) {
+      database.pragma('legacy_alter_table = OFF');
+      database.pragma('foreign_keys = ON');
+    }
+  }
 }

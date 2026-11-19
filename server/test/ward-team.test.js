@@ -24,8 +24,9 @@ let wardId;
 let teamId;
 
 function addUser(id, role) {
-  db.prepare(`INSERT INTO users(id,display_name,email,password_hash,role)
-    VALUES(?,?,?,'test-hash',?)`).run(id, `Test ${role} ${id}`, `ward-test-${id}@example.test`, role);
+  db.prepare(`INSERT INTO users(id,display_name,email,password_hash,role,email_verified)
+    VALUES(?,?,?,'test-hash',?,?)`).run(id, `Test ${role} ${id}`, `ward-test-${id}@example.test`, role,
+    role === 'CITIZEN' ? 1 : 0);
 }
 function tokenFor(userId) {
   return jwt.sign({}, process.env.JWT_SECRET, {

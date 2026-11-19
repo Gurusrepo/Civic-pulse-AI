@@ -30,9 +30,10 @@ let citizenToken;
 let officerToken;
 
 function addUser(id, role, name) {
-  db.prepare(`INSERT INTO users (id, display_name, email, password_hash, role)
-    VALUES (?, ?, ?, 'test-hash', ?)`)
-    .run(id, name, `${name.toLowerCase().replaceAll(' ', '.')}@example.test`, role);
+  db.prepare(`INSERT INTO users (id, display_name, email, password_hash, role,email_verified)
+    VALUES (?, ?, ?, 'test-hash', ?,?)`)
+    .run(id, name, `${name.toLowerCase().replaceAll(' ', '.')}@example.test`, role,
+      role === 'CITIZEN' ? 1 : 0);
 }
 
 function addComplaint(userId, civicIssueId, title, description) {

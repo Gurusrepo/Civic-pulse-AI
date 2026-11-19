@@ -43,8 +43,9 @@ let ids;
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l1sAAAAASUVORK5CYII=', 'base64');
 
 function addUser(id, role) {
-  db.prepare(`INSERT INTO users(id,display_name,email,password_hash,role) VALUES(?,?,?,'hash',?)`)
-    .run(id, `Workflow User ${id}`, `workflow-${id}@example.test`, role);
+  db.prepare(`INSERT INTO users(id,display_name,email,password_hash,role,email_verified) VALUES(?,?,?,'hash',?,?)`)
+    .run(id, `Workflow User ${id}`, `workflow-${id}@example.test`, role,
+      role === 'CITIZEN' ? 1 : 0);
 }
 function token(userId) {
   return jwt.sign({}, process.env.JWT_SECRET, { algorithm: 'HS256', subject: String(userId),
@@ -158,6 +159,10 @@ test('completion requires both stages, then conditionally resolves and records h
   assert.equal(missingBefore.status, 409);
 
   const completeIssue = createIssue().issueId;
+  const complaintId = Number(db.prepare(`INSERT INTO complaints
+    (user_id,civic_issue_id,title,description,latitude,longitude)
+    VALUES(2,?,'Reported street issue','A sufficiently detailed report of this street issue.',1,2)`)
+    .run(completeIssue).lastInsertRowid);
   await upload(completeIssue, 'BEFORE');
   await request(`/api/officer/civic-issues/${completeIssue}/start`, { method: 'POST', body: {} });
   await upload(completeIssue, 'AFTER');
@@ -166,7 +171,23 @@ test('completion requires both stages, then conditionally resolves and records h
   assert.equal((await completed.json()).event.status, 'RESOLVED');
   assert.equal(db.prepare('SELECT status FROM civic_issues WHERE id=?').get(completeIssue).status, 'RESOLVED');
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM civic_issue_work_events WHERE civic_issue_id=? AND event_type='COMPLETED'").get(completeIssue).count, 1);
+  const notification = db.prepare(`SELECT user_id,title,notification_type,related_complaint_id,event_key
+    FROM notifications WHERE related_complaint_id=?`).get(complaintId);
+  assert.ok(notification);
+  assert.deepEqual({
+    user_id: notification.user_id,
+    title: notification.title,
+    notification_type: notification.notification_type,
+    related_complaint_id: notification.related_complaint_id
+  }, {
+    user_id: 2,
+    title: 'Your complaint has been resolved',
+    notification_type: 'ISSUE_RESOLVED',
+    related_complaint_id: complaintId
+  });
+  assert.match(notification.event_key, new RegExp(`^issue:${completeIssue}:work:\\d+$`));
   assert.equal((await request(`/api/officer/civic-issues/${completeIssue}/complete`, { method: 'POST', body: {} })).status, 409);
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM notifications WHERE related_complaint_id=?').get(complaintId).count, 1);
 });
 
 test('failed start, evidence persistence, and completion transactions leave no partial state', async () => {

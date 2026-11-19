@@ -5,14 +5,34 @@ export function notFound(req, res) {
 export function errorHandler(error, req, res, next) {
   if (res.headersSent) return next(error);
   if (error?.name === 'MulterError') {
-    const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
-    const message = error.code === 'LIMIT_FILE_SIZE'
-      ? 'Uploaded photo exceeds the 5 MB limit'
-      : 'Invalid multipart upload';
-    return res.status(status).json({ error: message });
-  }
+  console.error('MULTER UPLOAD ERROR:', {
+    code: error.code,
+    field: error.field,
+    message: error.message
+  });
+
+  const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+
+  return res.status(status).json({
+    error: error.message,
+    code: error.code,
+    field: error.field ?? null
+  });
+}
   if (Number.isInteger(error?.status) && error.status >= 400 && error.status < 500) {
-    return res.status(error.status).json({ error: error.message });
+    const response = { error: error.message };
+    if (typeof error.code === 'string') response.code = error.code;
+    if (typeof error.deliveryState === 'string') response.deliveryState = error.deliveryState;
+    if (Number.isInteger(error.retryAfterSeconds) && error.retryAfterSeconds > 0) {
+      response.retryAfterSeconds = error.retryAfterSeconds;
+      res.set('Retry-After', String(error.retryAfterSeconds));
+    }
+    return res.status(error.status).json(response);
+  }
+  if (error?.expose === true && Number.isInteger(error.status) && error.status >= 500 && error.status < 600) {
+    const response = { error: error.message };
+    if (typeof error.code === 'string') response.code = error.code;
+    return res.status(error.status).json(response);
   }
   if (error?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
     return res.status(409).json({ error: 'A user with that email already exists' });

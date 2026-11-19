@@ -6,6 +6,9 @@ import authRoutes from './modules/auth/auth.routes.js';
 import complaintRoutes from './modules/complaints/complaint.routes.js';
 import adminRoutes from './modules/admin/admin.routes.js';
 import officerRoutes from './modules/officer/officer.routes.js';
+import { announcementRouter, adminAnnouncementRouter } from './modules/announcements/announcement.routes.js';
+import notificationRoutes from './modules/notifications/notification.routes.js';
+import supportRoutes from './modules/support.routes.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 
 const app = express();
@@ -36,7 +39,11 @@ app.use((req, res, next) => {
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/complaints', complaintRoutes);
+app.use('/api/announcements', announcementRouter);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/support', supportRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/announcements', adminAnnouncementRouter);
 app.use('/api/officer', officerRoutes);
 app.use(notFound);
 app.use(errorHandler);

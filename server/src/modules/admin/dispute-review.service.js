@@ -1,5 +1,6 @@
 import { db } from '../../config/database.js';
 import * as objectStorage from '../../services/objectStorage.js';
+import { notifyDisputingReporters, notifyIssueReporters } from '../notifications/notification.service.js';
 
 export class DisputeReviewError extends Error {
   constructor(message, status = 409) { super(message); this.status = status; }
@@ -110,6 +111,16 @@ export function createDisputeReviewService(storage = objectStorage) {
       decision === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED', reason, adminId,
       issue.assigned_team_id, issue.assigned_officer_id, teamEventId, officerEventId, statusAfter);
     const reviewed = db.prepare('SELECT reviewed_at FROM civic_issue_dispute_reviews WHERE id=?').get(Number(inserted.lastInsertRowid));
+    const notification = {
+      eventKey: `issue:${issueId}:dispute-review:${Number(inserted.lastInsertRowid)}`,
+      notificationType: 'DISPUTE_REVIEWED',
+      title: decision === 'ACCEPT' ? 'Your dispute was accepted' : 'Your dispute was rejected',
+      message: decision === 'ACCEPT'
+        ? 'An admin accepted your resolution dispute. The civic issue has been reopened for further work.'
+        : 'An admin reviewed and rejected your resolution dispute. The civic issue remains resolved.'
+    };
+    if (decision === 'ACCEPT') notifyIssueReporters(issueId, notification);
+    else notifyDisputingReporters(issueId, notification);
     return { id: Number(inserted.lastInsertRowid), issueId,
       decision: decision === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED', issueStatus: statusAfter,
       teamUnassignmentEventId: teamEventId, individualUnassignmentEventId: officerEventId,

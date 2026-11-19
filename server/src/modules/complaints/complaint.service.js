@@ -4,8 +4,8 @@ import { generateCandidatesForComplaint } from '../admin/duplicate.service.js';
 
 const insertCivicIssue = db.prepare('INSERT INTO civic_issues DEFAULT VALUES');
 const insertComplaint = db.prepare(`
-  INSERT INTO complaints (user_id, civic_issue_id, title, description, latitude, longitude, location_accuracy_meters)
-  VALUES (@userId, @civicIssueId, @title, @description, @latitude, @longitude, @locationAccuracyMeters)
+  INSERT INTO complaints (user_id, civic_issue_id, title, description, address, latitude, longitude, location_accuracy_meters)
+  VALUES (@userId, @civicIssueId, @title, @description, @address, @latitude, @longitude, @locationAccuracyMeters)
 `);
 const insertMedia = db.prepare(`
   INSERT INTO complaint_media (complaint_id, uploader_id, object_key, media_type, mime_type, byte_size)
@@ -16,7 +16,7 @@ const insertAiAssessment = db.prepare(`
   VALUES (?, 'PENDING')
 `);
 const findOwnedComplaint = db.prepare(`
-  SELECT c.id, c.user_id, c.civic_issue_id, c.title, c.description, c.latitude, c.longitude,
+  SELECT c.id, c.user_id, c.civic_issue_id, c.title, c.description, c.address, c.latitude, c.longitude,
          c.location_accuracy_meters, c.status, c.created_at, c.updated_at,
          i.status AS civic_issue_status,
          (SELECT COUNT(*) FROM complaints linked WHERE linked.civic_issue_id = c.civic_issue_id) AS issue_report_count
@@ -35,6 +35,7 @@ export const createComplaintTransaction = db.transaction((data) => {
     civicIssueId,
     title: data.fields.title,
     description: data.fields.description,
+    address: data.fields.address,
     latitude: data.fields.latitude,
     longitude: data.fields.longitude,
     locationAccuracyMeters: data.fields.location_accuracy_meters ?? null
@@ -58,6 +59,7 @@ function mapComplaint(row) {
     id: row.id,
     title: row.title,
     description: row.description,
+    address: row.address ?? null,
     latitude: row.latitude,
     longitude: row.longitude,
     locationAccuracyMeters: row.location_accuracy_meters,
@@ -115,7 +117,7 @@ export async function createComplaint(userId, fields, file) {
 
 export function listComplaints(userId, { limit, offset }) {
   const rows = db.prepare(`
-    SELECT c.id, c.title, c.description, c.latitude, c.longitude, c.location_accuracy_meters,
+    SELECT c.id, c.title, c.description, c.address, c.latitude, c.longitude, c.location_accuracy_meters,
            c.civic_issue_id, c.status, c.created_at, c.updated_at,
            i.status AS civic_issue_status,
            (SELECT COUNT(*) FROM complaints linked WHERE linked.civic_issue_id = c.civic_issue_id) AS issue_report_count,
@@ -137,6 +139,24 @@ export function listComplaints(userId, { limit, offset }) {
   };
 }
 
+export function getComplaintSummary(userId) {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS total,
+      COALESCE(SUM(CASE WHEN i.status = 'OPEN' THEN 1 ELSE 0 END), 0) AS open,
+      COALESCE(SUM(CASE WHEN i.status = 'IN_PROGRESS' THEN 1 ELSE 0 END), 0) AS in_progress,
+      COALESCE(SUM(CASE WHEN i.status = 'RESOLVED' THEN 1 ELSE 0 END), 0) AS resolved
+    FROM complaints c
+    LEFT JOIN civic_issues i ON i.id = c.civic_issue_id
+    WHERE c.user_id = ?
+  `).get(userId);
+  return {
+    total: row.total,
+    open: row.open,
+    inProgress: row.in_progress,
+    resolved: row.resolved
+  };
+}
+
 export async function getComplaint(userId, complaintId) {
   const row = findOwnedComplaint.get(complaintId, userId);
   if (!row) return null;
@@ -149,4 +169,60 @@ export async function getComplaint(userId, complaintId) {
     url: await createReadUrl(item.object_key, item.mime_type)
   })));
   return { ...mapComplaint(row), media };
+}
+
+export function getComplaintTimeline(userId, complaintId) {
+  const complaint = db.prepare(`SELECT id,civic_issue_id,created_at
+    FROM complaints WHERE id=? AND user_id=?`).get(complaintId, userId);
+  if (!complaint) return null;
+
+  const events = [{
+    id: `complaint-${complaint.id}`,
+    eventType: 'REPORT_SUBMITTED',
+    createdAt: complaint.created_at,
+    order: 0
+  }];
+
+  const workEvents = db.prepare(`SELECT id,event_type,status_after,created_at
+    FROM civic_issue_work_events
+    WHERE civic_issue_id=? AND event_type IN ('STARTED','COMPLETED')
+    ORDER BY created_at,id`).all(complaint.civic_issue_id);
+  for (const event of workEvents) {
+    events.push({
+      id: `work-${event.id}`,
+      eventType: event.event_type === 'STARTED' ? 'WORK_STARTED' : 'ISSUE_RESOLVED',
+      status: event.status_after,
+      createdAt: event.created_at,
+      order: 1
+    });
+  }
+
+  const verification = db.prepare(`SELECT id,decision,created_at
+    FROM civic_issue_resolution_verifications
+    WHERE civic_issue_id=? AND citizen_user_id=?`).get(complaint.civic_issue_id, userId);
+  if (verification) {
+    events.push({
+      id: `verification-${verification.id}`,
+      eventType: verification.decision === 'CONFIRM' ? 'RESOLUTION_CONFIRMED' : 'RESOLUTION_DISPUTED',
+      createdAt: verification.created_at,
+      order: 2
+    });
+  }
+
+  const review = db.prepare(`SELECT id,decision,status_after,reviewed_at
+    FROM civic_issue_dispute_reviews WHERE civic_issue_id=?`).get(complaint.civic_issue_id);
+  if (review) {
+    events.push({
+      id: `review-${review.id}`,
+      eventType: 'DISPUTE_REVIEWED',
+      decision: review.decision,
+      status: review.status_after,
+      createdAt: review.reviewed_at,
+      order: 3
+    });
+  }
+
+  events.sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt) ||
+    left.order - right.order || left.id.localeCompare(right.id));
+  return { items: events.map(({ order, ...event }) => event) };
 }

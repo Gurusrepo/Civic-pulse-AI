@@ -1,5 +1,6 @@
 import { db } from '../../config/database.js';
 import * as objectStorage from '../../services/objectStorage.js';
+import { notifyIssueReporters } from '../notifications/notification.service.js';
 
 export class OfficerWorkflowError extends Error {
   constructor(message, status = 409) { super(message); this.status = status; }
@@ -58,6 +59,12 @@ const completeTx = db.transaction((issueId, officerId) => {
   const event = insertWorkEvent.run({ issueId, eventType: 'COMPLETED', teamId: access.assigned_team_id,
     assignmentEventId: access.assignment_event_id, officerId, evidenceId: null,
     statusBefore: 'IN_PROGRESS', statusAfter: 'RESOLVED' });
+  notifyIssueReporters(issueId, {
+    eventKey: `issue:${issueId}:work:${Number(event.lastInsertRowid)}`,
+    notificationType: 'ISSUE_RESOLVED',
+    title: 'Your complaint has been resolved',
+    message: 'A civic issue you reported has been marked resolved. Review the repair evidence and respond from your complaint details.'
+  });
   return { id: Number(event.lastInsertRowid), civicIssueId: issueId, eventType: 'COMPLETED', status: 'RESOLVED' };
 });
 

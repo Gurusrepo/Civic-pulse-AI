@@ -13,7 +13,9 @@ export function createComplaintRouter(storageAdapter = objectStorage) {
   const resolutionController = createResolutionController(storageAdapter);
   router.use(authenticate, authorize('CITIZEN'));
   router.post('/', complaintUpload, validate(createComplaintSchema), controller.create);
+  router.get('/summary', controller.summary);
   router.get('/', validate(listComplaintsSchema, 'query'), controller.list);
+  router.get('/:id/timeline', validate(complaintIdSchema, 'params'), controller.timeline);
   router.get('/:id/ai-assessment', validate(complaintIdSchema, 'params'), controller.getAiAssessment);
   router.get('/:id/resolution', validate(complaintIdSchema, 'params'), resolutionController.getResolution);
   router.post('/:id/resolution-verification', validate(complaintIdSchema, 'params'),
