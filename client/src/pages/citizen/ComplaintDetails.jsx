@@ -231,16 +231,137 @@ export default function ComplaintDetails() {
         </dl>
       </article>
 
-      <section aria-labelledby="location-heading" className="space-y-4 rounded-2xl border border-[#e5e2d5] bg-white p-5 shadow-sm sm:p-6">
-        <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#9a7832]">Where it happened</p><h2 id="location-heading" className="mt-1 text-xl font-semibold text-[#20382a]">Location</h2></div>
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[#f7f8f5] p-4">
-          <div className="text-sm text-[#34483a]"><p>Latitude: <span className="font-mono">{complaint.latitude}</span></p><p className="mt-1">Longitude: <span className="font-mono">{complaint.longitude}</span></p>{complaint.locationAccuracyMeters && <p className="mt-1 text-xs text-[#68736a]">Accuracy: approximately {Math.round(complaint.locationAccuracyMeters)} metres</p>}</div>
-          <a href={mapsUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center rounded-lg border border-[#cfd8ce] bg-white px-3 text-sm font-semibold text-[#1d4933] hover:bg-[#edf2eb] focus:outline-none focus:ring-2 focus:ring-[#477454]/30">Open map</a>
+      
+<section
+  aria-labelledby="location-heading"
+  className="overflow-hidden rounded-2xl border border-[#e2e8df] bg-white shadow-sm"
+>
+  {/* Header */}
+  <div className="flex items-center gap-3 border-b border-[#edf0e9] bg-[#f8faf6] px-5 py-4 sm:px-6">
+    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#e6efe5] text-[#245638]">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        className="h-6 w-6"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z" />
+        <circle cx="12" cy="10" r="2.5" />
+      </svg>
+    </div>
+
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#9a7832]">
+        Location details
+      </p>
+      <h2
+        id="location-heading"
+        className="mt-0.5 text-lg font-bold text-[#244632]"
+      >
+        Where it happened
+      </h2>
+    </div>
+  </div>
+
+  {/* Address */}
+  <div className="space-y-5 p-5 sm:p-6">
+    <div className="rounded-xl border border-[#e5eadf] bg-[#f8faf6] p-4">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-[#39734c] shadow-sm">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-5 w-5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11Z" />
+            <circle cx="12" cy="10" r="2.5" />
+          </svg>
         </div>
-      </section>
+
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold uppercase tracking-wider text-[#788579]">
+            Complaint address
+          </p>
+          <p className="mt-1.5 break-words text-sm font-semibold leading-6 text-[#263d2d] sm:text-base">
+            {complaint.address || 'Address was not recorded for this complaint.'}
+          </p>
+        </div>
+      </div>
+    </div>
+
+    {/* Coordinates */}
+    <div>
+      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#788579]">
+        GPS coordinates
+      </p>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-[#edf0e9] p-4">
+          <p className="text-xs font-medium text-[#788579]">Latitude</p>
+          <p className="mt-1 break-all font-mono text-sm font-semibold text-[#294c35]">
+            {complaint.latitude ?? 'Not available'}
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-[#edf0e9] p-4">
+          <p className="text-xs font-medium text-[#788579]">Longitude</p>
+          <p className="mt-1 break-all font-mono text-sm font-semibold text-[#294c35]">
+            {complaint.longitude ?? 'Not available'}
+          </p>
+        </div>
+      </div>
+    </div>
+
+    {/* Accuracy */}
+    {complaint.locationAccuracyMeters != null && (
+      <div className="flex items-center gap-2 text-xs text-[#68776b]">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className="h-4 w-4 shrink-0 text-[#477454]"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+        >
+          <circle cx="12" cy="12" r="8" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l2.5 2.5" />
+        </svg>
+        Location accuracy: approximately{' '}
+        {Math.round(complaint.locationAccuracyMeters)} metres
+      </div>
+    )}
+
+    {/* Map button */}
+    <a
+      href={mapsUrl}
+      target="_blank"
+      rel="noreferrer"
+      className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#245638] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#193f28] focus:outline-none focus:ring-2 focus:ring-[#477454]/40 focus:ring-offset-2"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        className="h-5 w-5"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 18 3 21V6l6-3m0 15 6 3m-6-3V3m6 18 6-3V3l-6 3m0 15V6" />
+      </svg>
+      View location on Maps
+      <span aria-hidden="true">↗</span>
+    </a>
+  </div>
+</section>
+
 
       <section aria-labelledby="photos-heading" className="space-y-4 rounded-2xl border border-[#e5e2d5] bg-white p-5 shadow-sm sm:p-6">
-        <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#9a7832]">Attached media</p><h2 id="photos-heading" className="mt-1 text-xl font-semibold text-[#20382a]">Complaint photos</h2></div>
+        <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#9a7832]">Attached media</p></div>
         {Array.isArray(complaint.media) && complaint.media.length > 0 ? <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{complaint.media.map((media) => <a key={media.id} href={media.url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border border-[#e5e2d5] focus:outline-none focus:ring-4 focus:ring-[#477454]/20"><img src={media.url} alt={`Photo attached to complaint ${complaint.id}`} className="h-56 w-full object-cover" /><span className="block px-3 py-2 text-xs text-[#68736a]">{media.mimeType} · {Math.ceil(media.byteSize / 1024)} KB</span></a>)}</div> : <EmptyState>No complaint photo was returned.</EmptyState>}
       </section>
 

@@ -68,9 +68,19 @@ export default function CitizenDashboard() {
         <div aria-hidden="true" className="absolute -right-12 -top-20 -z-10 h-64 w-64 rounded-full border border-white/10 sm:h-80 sm:w-80" />
         <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
           <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#e2c77f]">NamMakkal · Your citizen dashboard</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Welcome, {user?.name ?? 'Citizen'}</h1>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-white/75">Together, we can make our neighbourhood a better place. Follow the issues you have reported and see how your community is progressing.</p>
+            <p className="text-xs font-semibold tracking-[0.2em] text-[#e2c77f]">NamMakkaL  CITIZEN DASHBOARD</p>
+           <h1 className="mt-2 text-3xl tracking-tight sm:text-4xl">
+            <h1 className="mt-2 text-3xl tracking-tight sm:text-4xl">
+          <span className="font-normal font-serif text-gray-500">
+            Welcome
+          </span>
+          {" "}
+          <span className="font-semibold">
+            {user?.name ?? "Citizen"}
+          </span>
+        </h1>
+           </h1>
+            <p className="mt-3 max-w-xl text-sm leading-6 text-white/75">Together, we can make our country a better place. Follow the issues you have reported and see how our community is progressing.</p>
           </div>
           <Link to="/citizen/complaints/new" className="inline-flex min-h-12 shrink-0 items-center justify-center rounded-xl bg-[#e2c77f] px-5 text-sm font-bold text-[#213c2a] shadow-sm transition hover:bg-[#efd995] focus:outline-none focus:ring-4 focus:ring-white/30">Report an issue</Link>
         </div>
@@ -100,10 +110,9 @@ export default function CitizenDashboard() {
       <section aria-labelledby="recent-complaints-heading" className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#9a7832]">Your activity</p>
-            <h2 id="recent-complaints-heading" className="mt-1 text-2xl font-semibold text-[#20382a]">Recent complaints</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#9a7832]">activity</p>
+            <h2 id="recent-complaints-heading" className="mt-2 text-2xl font-semibold text-[#20382a]">Recent complaints</h2>
           </div>
-          <Link to="/citizen/complaints" className="min-h-10 rounded-lg px-3 py-2 text-sm font-semibold text-[#1d4933] underline decoration-[#d4ae58] underline-offset-4 focus:outline-none focus:ring-2 focus:ring-[#477454]/30">View all complaints</Link>
         </div>
         {complaintsLoading ? <LoadingState>Loading your recent complaints...</LoadingState> : complaintsError ? (
           <ErrorState onRetry={() => setRetry((value) => value + 1)}>{complaintsError}</ErrorState>
@@ -114,56 +123,6 @@ export default function CitizenDashboard() {
         )}
       </section>
 
-      <section aria-labelledby="announcements-heading" className="space-y-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#9a7832]">From your community</p>
-            <h2 id="announcements-heading" className="mt-1 text-2xl font-semibold text-[#20382a]">Latest announcements</h2>
-          </div>
-          <Link to="/citizen/announcements" className="min-h-10 rounded-lg px-3 py-2 text-sm font-semibold text-[#1d4933] underline decoration-[#d4ae58] underline-offset-4 focus:outline-none focus:ring-2 focus:ring-[#477454]/30">View all announcements</Link>
-        </div>
-        {announcementsLoading ? <LoadingState>Loading announcements...</LoadingState> : announcementsError ? (
-          <ErrorState onRetry={() => setRetry((value) => value + 1)}>{announcementsError}</ErrorState>
-        ) : announcements.length === 0 ? (
-          <EmptyState>There are no public announcements yet. Please check back soon.</EmptyState>
-        ) : (
-          <div className="grid gap-4 lg:grid-cols-3">
-            {announcements.map((announcement) => (
-              <article key={announcement.id} className="flex flex-col rounded-2xl border border-[#e5e2d5] bg-white p-5 shadow-sm">
-                <p className="text-xs font-medium text-[#758077]">{formatDate(announcement.publishedAt)}</p>
-                <h3 className="mt-2 text-lg font-semibold text-[#20382a]">{announcement.title}</h3>
-                <p className="mt-2 line-clamp-3 flex-1 text-sm leading-6 text-[#68736a]">{announcement.description}</p>
-                <Link to={`/citizen/announcements/${announcement.id}`} className="mt-4 inline-flex min-h-10 items-center text-sm font-semibold text-[#1d4933] underline decoration-[#d4ae58] underline-offset-4 focus:outline-none focus:ring-2 focus:ring-[#477454]/30">View announcement</Link>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section aria-labelledby="quick-actions-heading" className="space-y-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#9a7832]">Shortcuts</p>
-          <h2 id="quick-actions-heading" className="mt-1 text-2xl font-semibold text-[#20382a]">Quick actions</h2>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Link to="/citizen/complaints/new" className="rounded-2xl border border-[#e5e2d5] bg-white p-5 shadow-sm transition hover:border-[#c9d5c8] focus:outline-none focus:ring-4 focus:ring-[#477454]/20">
-            <span className="text-sm font-semibold text-[#20382a]">Report an issue</span>
-            <span className="mt-1 block text-sm text-[#68736a]">Tell your local team what needs attention.</span>
-          </Link>
-          <Link to="/citizen/complaints" className="rounded-2xl border border-[#e5e2d5] bg-white p-5 shadow-sm transition hover:border-[#c9d5c8] focus:outline-none focus:ring-4 focus:ring-[#477454]/20">
-            <span className="text-sm font-semibold text-[#20382a]">Track complaints</span>
-            <span className="mt-1 block text-sm text-[#68736a]">Check updates on your submitted reports.</span>
-          </Link>
-          <Link to="/citizen/announcements" className="rounded-2xl border border-[#e5e2d5] bg-white p-5 shadow-sm transition hover:border-[#c9d5c8] focus:outline-none focus:ring-4 focus:ring-[#477454]/20">
-            <span className="text-sm font-semibold text-[#20382a]">View announcements</span>
-            <span className="mt-1 block text-sm text-[#68736a]">Read news and notices for the community.</span>
-          </Link>
-          <Link to="/citizen/profile" className="rounded-2xl border border-[#e5e2d5] bg-white p-5 shadow-sm transition hover:border-[#c9d5c8] focus:outline-none focus:ring-4 focus:ring-[#477454]/20">
-            <span className="text-sm font-semibold text-[#20382a]">Access profile</span>
-            <span className="mt-1 block text-sm text-[#68736a]">Review and update your account details.</span>
-          </Link>
-        </div>
-      </section>
     </div>
   );
 }

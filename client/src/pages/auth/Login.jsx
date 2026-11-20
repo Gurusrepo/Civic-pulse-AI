@@ -3,12 +3,22 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.jsx';
 import nammakkalLogo from '../../assets/nammakkal-logo.png';
 import { getApiErrorMessage } from '../../api/errors.js';
+import { isValidEmail } from '../../utils/validation.js';
+import { useTranslation } from '../../i18n/LocaleProvider.jsx';
 
 const roleLandingRoutes = {
   CITIZEN: '/citizen',
   OFFICER: '/officer',
   ADMIN: '/admin'
 };
+
+function getRetryAfterSeconds(error) {
+  const value = Number(
+    error?.response?.data?.retryAfterSeconds ??
+    error?.response?.headers?.['retry-after']
+  );
+  return Number.isFinite(value) && value > 0 ? Math.ceil(value) : 0;
+}
 
 // Shows a calm loading screen while an existing cookie session is restored.
 function SessionLoading() {
@@ -21,7 +31,11 @@ function SessionLoading() {
 
 // Provides the branded sign-in form and routes users according to their backend role.
 export default function Login() {
-  const { user, isAuthenticated, isLoading, sessionError, logoutWarning, login, logout } = useAuth();
+  const {
+    user, isAuthenticated, isLoading, sessionError, logoutWarning, login, completeLoginOtp,
+    resendLoginOtp, completeRegistrationEmail, resendRegistrationEmail, logout
+  } = useAuth();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -30,6 +44,18 @@ export default function Login() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRetryingLogout, setIsRetryingLogout] = useState(false);
   const [logoutRetryMessage, setLogoutRetryMessage] = useState('');
+  const [verificationRequired, setVerificationRequired] = useState(false);
+  const [verificationPurpose, setVerificationPurpose] = useState('LOGIN');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [verificationMessage, setVerificationMessage] = useState('');
+  const [otpDestination, setOtpDestination] = useState('');
+  const [resendSeconds, setResendSeconds] = useState(0);
+
+  useEffect(() => {
+    if (resendSeconds <= 0) return undefined;
+    const timer = window.setTimeout(() => setResendSeconds((seconds) => seconds - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendSeconds]);
 
   // Sends authenticated visitors directly to the landing page for their role.
   useEffect(() => {
@@ -42,6 +68,11 @@ export default function Login() {
   async function handleSubmit(event) {
     event.preventDefault();
     setErrorMessage('');
+    const value = email.trim();
+    if (!isValidEmail(value)) {
+      setErrorMessage('Enter a valid email address.');
+      return;
+    }
     if (password.length > 72 || new TextEncoder().encode(password).length > 72) {
       setErrorMessage('Your password must be no more than 72 characters and 72 bytes.');
       return;
@@ -49,10 +80,44 @@ export default function Login() {
     setIsSubmitting(true);
 
     try {
-      const authenticatedUser = await login({ email: email.trim(), password });
-      navigate(roleLandingRoutes[authenticatedUser?.role] ?? '/', { replace: true });
+      const result = await login({ email: value.toLowerCase(), password });
+      if (result.requiresOtpVerification || result.requiresEmailVerification) {
+        setVerificationRequired(true);
+        setVerificationPurpose(result.requiresEmailVerification ? 'REGISTRATION' : 'LOGIN');
+        setVerificationMessage(result.message);
+        setOtpDestination(result.destination ?? '');
+        setResendSeconds(result.retryAfterSeconds ?? 0);
+        return;
+      }
+      navigate(roleLandingRoutes[result.user?.role] ?? '/', { replace: true });
     } catch (error) {
       setErrorMessage(getApiErrorMessage(error, 'We could not sign you in. Check your details and try again.'));
+      setResendSeconds(getRetryAfterSeconds(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleVerifyOtp(event) {
+    event.preventDefault();
+    setErrorMessage('');
+    setIsSubmitting(true);
+    try {
+      if (verificationPurpose === 'REGISTRATION') {
+        await completeRegistrationEmail({ email: email.trim().toLowerCase(), code: verificationCode });
+        setVerificationPurpose('LOGIN');
+        setVerificationCode('');
+        const result = await login({ email: email.trim().toLowerCase(), password });
+        setVerificationMessage(result.message);
+        setOtpDestination(result.destination ?? '');
+        setResendSeconds(result.retryAfterSeconds ?? 0);
+        return;
+      }
+      const authenticatedUser = await completeLoginOtp({ email: email.trim().toLowerCase(), code: verificationCode });
+      navigate(roleLandingRoutes[authenticatedUser?.role] ?? '/', { replace: true });
+    } catch (error) {
+      setErrorMessage(getApiErrorMessage(error, 'We could not verify your email code. Please try again.'));
+      setResendSeconds(getRetryAfterSeconds(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -72,14 +137,13 @@ export default function Login() {
     }
   }
 
-  // Keeps the email field synchronized with the form state.
-  function handleEmailChange(event) {
-    setEmail(event.target.value);
-  }
-
   // Keeps the password field synchronized with the form state.
   function handlePasswordChange(event) {
     setPassword(event.target.value);
+    setVerificationRequired(false);
+    setVerificationPurpose('LOGIN');
+    setVerificationCode('');
+    setVerificationMessage('');
   }
 
   // Toggles password visibility for easier entry on personal devices.
@@ -92,18 +156,36 @@ export default function Login() {
 
   return (
     <main className="min-h-screen bg-[#f7f6ef] lg:grid lg:grid-cols-[0.92fr_1.08fr]">
-      <aside className="relative hidden min-h-screen overflow-hidden bg-[#173d2b] px-12 py-10 text-white lg:flex lg:flex-col lg:justify-between xl:px-20">
+      <aside className="relative hidden min-h-screen overflow-hidden bg-[#173d2d] px-12 py-10 text-white lg:flex lg:flex-col lg:justify-between xl:px-20">
         <div className="absolute -right-28 top-1/4 h-96 w-96 rounded-full border border-white/10" />
         <div className="absolute -right-12 top-[30%] h-64 w-64 rounded-full border border-[#d4ae58]/25" />
-        <Link to="/" aria-label="NAMMAKKAL home" className="relative z-10 inline-flex w-fit rounded-2xl bg-[#fbfaf5] p-3">
+        <Link to="/" aria-label="NAMMAKKAL home" className="relative z-10 inline-flex w-fit rounded-2xl p-3">
           <img className="h-auto w-56" src={nammakkalLogo} alt="NAMMAKKAL" />
         </Link>
         <div className="relative z-10 max-w-lg pb-12">
-          <p className="mb-5 text-xs font-semibold uppercase tracking-[0.24em] text-[#e2c77f]">A better tomorrow, together</p>
-          <h1 className="text-5xl font-semibold leading-[1.12] tracking-tight xl:text-6xl">Your town.<br />Your voice.<br /><span className="text-[#e2c77f]">Our future.</span></h1>
-          <p className="mt-7 max-w-md text-base leading-7 text-white/75">Connect with your community and help make local services work better for everyone.</p>
-        </div>
-        <p className="relative z-10 text-xs text-white/55">A community platform for Nammakkal</p>
+  <p className="mb-5 font-['Inter'] text-xs font-bold uppercase tracking-[0.24em] text-[#e2c77f]">
+    Together, We Build Better Tomorrow
+  </p>
+
+  <h1 className="font-['Manrope'] text-5xl font-extrabold leading-[1.12] tracking-tight xl:text-6xl">
+    Our town.<br />
+    Our voice.<br />
+    <span className="text-[#e2c77f]">Our future.</span>
+  </h1>
+
+  <p className="mt-7 max-w-md font-['Inter'] text-base leading-8 text-white/80">
+    Your voice matters. Share ideas, raise concerns, and work together to create a better, stronger Place for everyone.
+  </p>
+</div>
+        <p className="relative z-10 text-xs text-white/55">
+  By continuing, you agree to our{" "}
+  <a
+    href="/terms-and-conditions"
+    className="text-[#e2c77f] transition-colors hover:text-white hover:underline"
+  >
+    Terms & Conditions
+  </a>
+</p>
       </aside>
 
       <section className="flex min-h-screen items-center justify-center px-5 py-10 sm:px-10 lg:px-14 xl:px-24">
@@ -112,9 +194,9 @@ export default function Login() {
             <img className="h-auto w-48" src={nammakkalLogo} alt="NAMMAKKAL" />
           </Link>
           <div className="mb-8">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[#9a7832]">Welcome back</p>
-            <h2 className="text-3xl font-semibold tracking-tight text-[#20382a] sm:text-4xl">Sign in to your account</h2>
-            <p className="mt-3 text-sm leading-6 text-[#68736a]">Use your registered email address to continue.</p>
+            <p className="mb-3 text-l font-semibold uppercase tracking-[0.2em] text-[#9a7832]">Welcome 🙏</p>
+            <h2 className="text-3xl font-semibold tracking-tight text-[#20382a] sm:text-4xl"><span class = "text-[#725a23] font-['Inter']">SignIn</span> to your account</h2>
+            
           </div>
 
           {sessionError && <p role="status" className="mb-5 rounded-xl border border-[#e7d9b4] bg-[#fff9e9] px-4 py-3 text-sm text-[#725a23]">We could not verify an existing session. You can still try signing in.</p>}
@@ -128,7 +210,12 @@ export default function Login() {
             <form className="space-y-5" onSubmit={handleSubmit} aria-busy={isSubmitting}>
             <div>
               <label htmlFor="login-email" className="mb-2 block text-sm font-medium text-[#34483a]">Email address</label>
-                <input id="login-email" name="email" type="email" autoComplete="email" maxLength={254} required value={email} onChange={handleEmailChange} className="w-full rounded-xl border border-[#d9ded5] bg-white px-4 py-3.5 text-sm text-[#24362a] outline-none transition placeholder:text-[#9aa39b] focus:border-[#477454] focus:ring-4 focus:ring-[#477454]/10" placeholder="you@example.com" />
+              <input id="login-email" name="email" type="email" autoComplete="username" maxLength={254} required value={email} onChange={(event) => {
+                setEmail(event.target.value);
+                setVerificationRequired(false);
+                setVerificationCode('');
+                setVerificationMessage('');
+              }} className="w-full rounded-xl border border-[#d9ded5] bg-white px-4 py-3.5 text-sm text-[#24362a] outline-none placeholder:text-[#9aa39b] focus:border-[#477454] focus:ring-4 focus:ring-[#477454]/10" placeholder="Enter your email address" />
             </div>
             <div>
               <label htmlFor="login-password" className="mb-2 block text-sm font-medium text-[#34483a]">Password</label>
@@ -181,11 +268,46 @@ export default function Login() {
 
             </div>
             <button type="submit" disabled={isSubmitting} className="flex w-full items-center justify-center rounded-xl bg-[#1d4933] px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#163b29] focus:outline-none focus:ring-4 focus:ring-[#477454]/25 disabled:cursor-not-allowed disabled:opacity-65">
-              {isSubmitting ? 'Signing you in...' : 'Sign in'}
+              {isSubmitting ? 'Signing you in...' : verificationRequired ? 'Send or resend email code' : 'Sign in'}
             </button>
+            <div className="text-right">
+              <Link className="text-sm font-semibold text-[#1d4933] underline underline-offset-2" to="/forgot-password">{t('auth.forgotPassword')}</Link>
+            </div>
           </form>
 
-          <p className="mt-7 text-center text-sm text-[#68736a]">New to NAMMAKKAL? <Link className="font-semibold text-[#1d4933] underline decoration-[#d4ae58] decoration-2 underline-offset-4 hover:text-[#9a7832]" to="/register">Create a citizen account</Link></p>
+          {verificationRequired && <section aria-labelledby="login-verification-title" className="mt-5 space-y-4 rounded-2xl border border-[#e5e2d5] bg-white p-5 shadow-sm">
+            <div>
+              <h3 id="login-verification-title" className="text-lg font-semibold text-[#20382a]">{verificationPurpose === 'REGISTRATION' ? 'Verify your email address' : 'Verify your sign-in'}</h3>
+              <p className="mt-1 text-sm leading-6 text-[#68736a]">{verificationPurpose === 'REGISTRATION' ? 'Verify your email before signing in.' : 'Enter the sign-in code sent to your registered email address.'}</p>
+              {otpDestination && <p className="mt-2 text-sm font-medium text-[#385743]">{otpDestination}</p>}
+              {verificationMessage && <p className="mt-1 text-xs text-[#68736a]">{verificationMessage}</p>}
+            </div>
+            <form onSubmit={handleVerifyOtp} className="space-y-3" aria-busy={isSubmitting}>
+              <label htmlFor="login-otp-code" className="block text-sm font-medium text-[#34483a]">Verification code</label>
+              <input id="login-otp-code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} required value={verificationCode} onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))} className="w-full rounded-xl border border-[#d9ded5] bg-white px-4 py-3 text-sm text-[#24362a] outline-none focus:border-[#477454] focus:ring-4 focus:ring-[#477454]/10" />
+              <button type="submit" disabled={isSubmitting || verificationCode.length !== 6} className="flex min-h-11 w-full items-center justify-center rounded-xl bg-[#1d4933] px-5 text-sm font-semibold text-white disabled:opacity-60">{isSubmitting ? 'Verifying...' : verificationPurpose === 'REGISTRATION' ? 'Verify email and continue' : 'Verify code and sign in'}</button>
+            </form>
+            <button type="button" disabled={isSubmitting || resendSeconds > 0} onClick={async () => {
+              setErrorMessage('');
+              setIsSubmitting(true);
+              try {
+                const result = verificationPurpose === 'REGISTRATION'
+                  ? await resendRegistrationEmail({ email: email.trim().toLowerCase(), password })
+                  : await resendLoginOtp({ email: email.trim().toLowerCase(), password });
+                setVerificationMessage(result.message);
+                setResendSeconds(result.retryAfterSeconds ?? 0);
+              } catch (error) {
+                setErrorMessage(getApiErrorMessage(error, 'Please wait before requesting another code.'));
+                setResendSeconds(getRetryAfterSeconds(error));
+              } finally {
+                setIsSubmitting(false);
+              }
+            }} className="min-h-10 text-sm font-semibold text-[#1d4933] underline disabled:cursor-not-allowed disabled:text-[#8b948d]">
+              {resendSeconds > 0 ? `Resend in ${resendSeconds}s` : 'Resend email code'}
+            </button>
+          </section>}
+
+          <p className="mt-7 text-center text-sm text-[#68736a]">New to NamMakkal? {" "}<Link className="font-semibold text-[#1d4933] underline decoration-[#d4ae58] decoration-2 underline-offset-4 hover:text-[#9a7832]" to="/register">  Create a Account</Link></p>
         </div>
       </section>
     </main>

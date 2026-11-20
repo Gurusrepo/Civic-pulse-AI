@@ -3,7 +3,14 @@ import { authenticate } from '../../middleware/authenticate.js';
 import { authorize } from '../../middleware/authorize.js';
 import { validate } from '../../middleware/validate.js';
 import * as controller from './announcement.controller.js';
-import { announcementIdSchema, announcementListQuerySchema, publishAnnouncementSchema } from './announcement.validation.js';
+import {
+  adminAnnouncementListQuerySchema,
+  announcementIdSchema,
+  announcementListQuerySchema,
+  announcementPublicationSchema,
+  createAnnouncementSchema,
+  updateAnnouncementSchema
+} from './announcement.validation.js';
 
 export function createAnnouncementRouter() {
   const router = Router();
@@ -16,8 +23,12 @@ export function createAnnouncementRouter() {
 export function createAdminAnnouncementRouter() {
   const router = Router();
   router.use(authenticate, authorize('ADMIN'));
-  router.get('/', validate(announcementListQuerySchema, 'query'), controller.list);
-  router.post('/', validate(publishAnnouncementSchema), controller.publish);
+  router.get('/', validate(adminAnnouncementListQuerySchema, 'query'), controller.listAdmin);
+  router.get('/:id', validate(announcementIdSchema, 'params'), controller.getAdmin);
+  router.post('/', validate(createAnnouncementSchema), controller.create);
+  router.patch('/:id', validate(announcementIdSchema, 'params'), validate(updateAnnouncementSchema), controller.update);
+  router.patch('/:id/publication', validate(announcementIdSchema, 'params'), validate(announcementPublicationSchema), controller.setPublication);
+  router.delete('/:id', validate(announcementIdSchema, 'params'), controller.remove);
   return router;
 }
 

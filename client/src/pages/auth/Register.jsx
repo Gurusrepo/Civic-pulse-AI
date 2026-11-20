@@ -4,6 +4,8 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import nammakkalLogo from '../../assets/nammakkal-logo.png';
 import { getApiErrorMessage } from '../../api/errors.js';
 import { isValidEmail } from '../../utils/validation.js';
+import { isValidIndianMobile, normalizeIndianMobile } from '../../utils/phone.js';
+import { useTranslation } from '../../i18n/LocaleProvider.jsx';
 
 const roleLandingRoutes = {
   CITIZEN: '/citizen',
@@ -11,14 +13,26 @@ const roleLandingRoutes = {
   ADMIN: '/admin'
 };
 
+function getRetryAfterSeconds(error) {
+  const value = Number(
+    error?.response?.data?.retryAfterSeconds ??
+    error?.response?.headers?.['retry-after']
+  );
+  return Number.isFinite(value) && value > 0 ? Math.ceil(value) : 0;
+}
+
 // Returns the first field validation message for public citizen registration.
-function getRegistrationError({ name, email, password, confirmPassword }) {
+function getRegistrationError({ name, email, phoneNumber, dateOfBirth, address, password, confirmPassword }) {
   const cleanName = name.trim();
   const cleanEmail = email.trim();
   const passwordBytes = new TextEncoder().encode(password).length;
 
   if (cleanName.length < 1 || cleanName.length > 100) return 'Enter a name between 1 and 100 characters.';
   if (cleanEmail.length > 254 || !isValidEmail(cleanEmail)) return 'Enter a valid email address.';
+  if (!isValidIndianMobile(phoneNumber)) return 'Enter a valid 10-digit Indian mobile number.';
+  const parsedDate = new Date(`${dateOfBirth}T00:00:00Z`);
+  if (!dateOfBirth || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== dateOfBirth || dateOfBirth >= new Date().toISOString().slice(0, 10)) return 'Enter a valid date of birth in the past.';
+  if (!address.trim() || address.trim().length > 400) return 'Enter your residential address (400 characters or fewer).';
   if (password.length < 10 || password.length > 72 || passwordBytes > 72) return 'Your password must be 10 to 72 characters and no more than 72 bytes.';
   if (password !== confirmPassword) return 'The passwords do not match.';
   return '';
@@ -26,15 +40,29 @@ function getRegistrationError({ name, email, password, confirmPassword }) {
 
 // Provides the branded citizen registration form and role-aware session redirects.
 export default function Register() {
-  const { user, isAuthenticated, isLoading, sessionError, register } = useAuth();
+  const { user, isAuthenticated, isLoading, sessionError, register, completeRegistrationEmail, resendRegistrationEmail } = useAuth();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [address, setAddress] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [verificationMessage, setVerificationMessage] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [isEmailVerificationPending, setIsEmailVerificationPending] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
+
+  useEffect(() => {
+    if (resendSeconds <= 0) return undefined;
+    const timer = window.setTimeout(() => setResendSeconds((seconds) => seconds - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendSeconds]);
 
   // Sends authenticated visitors directly to the landing page for their role.
   useEffect(() => {
@@ -47,7 +75,7 @@ export default function Register() {
   async function handleSubmit(event) {
     event.preventDefault();
     setErrorMessage('');
-    const validationError = getRegistrationError({ name, email, password, confirmPassword });
+    const validationError = getRegistrationError({ name, email, phoneNumber, dateOfBirth, address, password, confirmPassword });
     if (validationError) {
       setErrorMessage(validationError);
       return;
@@ -55,10 +83,48 @@ export default function Register() {
 
     setIsSubmitting(true);
     try {
-      const registeredUser = await register({ name: name.trim(), email: email.trim(), password });
-      navigate(roleLandingRoutes[registeredUser?.role] ?? '/citizen', { replace: true });
+      const result = await register({
+        name: name.trim(), email: email.trim().toLowerCase(), password, phoneNumber: normalizeIndianMobile(phoneNumber),
+        dateOfBirth, address: address.trim()
+      });
+      setIsEmailVerificationPending(true);
+      setVerificationMessage(result.message);
+      setResendSeconds(result.retryAfterSeconds ?? 0);
     } catch (error) {
       setErrorMessage(getApiErrorMessage(error, 'We could not create your account. Please try again.'));
+      setResendSeconds(getRetryAfterSeconds(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleVerifyEmail(event) {
+    event.preventDefault();
+    setErrorMessage('');
+    setIsSubmitting(true);
+    try {
+      await completeRegistrationEmail({ email: email.trim().toLowerCase(), code: verificationCode });
+      setVerificationMessage('Email verified successfully. You can now sign in.');
+      setIsEmailVerificationPending(false);
+      navigate('/login', { replace: true });
+    } catch (error) {
+      setErrorMessage(getApiErrorMessage(error, 'We could not verify your email address. Please try again.'));
+      setResendSeconds(getRetryAfterSeconds(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleResendEmailCode() {
+    setErrorMessage('');
+    setIsSubmitting(true);
+    try {
+      const result = await resendRegistrationEmail({ email: email.trim().toLowerCase(), password });
+      setVerificationMessage(result.message);
+      setResendSeconds(result.retryAfterSeconds ?? 0);
+    } catch (error) {
+      setErrorMessage(getApiErrorMessage(error, 'We could not send a new verification code.'));
+      setResendSeconds(getRetryAfterSeconds(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -126,7 +192,7 @@ export default function Register() {
           {sessionError && <p role="status" className="mb-5 rounded-xl border border-[#e7d9b4] bg-[#fff9e9] px-4 py-3 text-sm text-[#725a23]">We could not verify an existing session. You can still create an account.</p>}
           {errorMessage && <p role="alert" className="mb-5 rounded-xl border border-[#e9c9c2] bg-[#fff5f2] px-4 py-3 text-sm text-[#8b3c2d]">{errorMessage}</p>}
 
-          <form className="space-y-4" onSubmit={handleSubmit} aria-busy={isSubmitting}>
+          {!isEmailVerificationPending ? <form className="space-y-4" onSubmit={handleSubmit} aria-busy={isSubmitting}>
             <div>
               <label htmlFor="register-name" className="mb-2 block text-sm font-medium text-[#34483a]">Full name</label>
               <input id="register-name" name="name" type="text" autoComplete="name" maxLength={100} required value={name} onChange={handleNameChange} className="w-full rounded-xl border border-[#d9ded5] bg-white px-4 py-3 text-sm text-[#24362a] outline-none transition placeholder:text-[#9aa39b] focus:border-[#477454] focus:ring-4 focus:ring-[#477454]/10" placeholder="Your name" />
@@ -134,6 +200,23 @@ export default function Register() {
             <div>
               <label htmlFor="register-email" className="mb-2 block text-sm font-medium text-[#34483a]">Email address</label>
               <input id="register-email" name="email" type="email" autoComplete="email" maxLength={254} required value={email} onChange={handleEmailChange} className="w-full rounded-xl border border-[#d9ded5] bg-white px-4 py-3 text-sm text-[#24362a] outline-none transition placeholder:text-[#9aa39b] focus:border-[#477454] focus:ring-4 focus:ring-[#477454]/10" placeholder="you@example.com" />
+            </div>
+            <div>
+              <label htmlFor="register-phone" className="mb-2 block text-sm font-medium text-[#34483a]">Mobile number</label>
+              <div className="flex rounded-xl border border-[#d9ded5] bg-white focus-within:border-[#477454] focus-within:ring-4 focus-within:ring-[#477454]/10">
+                <span className="flex shrink-0 items-center border-r border-[#d9ded5] px-3 text-sm font-semibold text-[#426c4d]">+91</span>
+                <input id="register-phone" name="phoneNumber" type="tel" autoComplete="tel-national" inputMode="numeric" maxLength={12} required value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value.replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '').slice(0, 10))} className="min-w-0 flex-1 rounded-r-xl bg-transparent px-4 py-3 text-sm text-[#24362a] outline-none placeholder:text-[#9aa39b]" placeholder="9876543210" />
+              </div>
+              <p className="mt-1 text-xs text-[#7a847b]">Enter only a 10-digit Indian mobile number.</p>
+            </div>
+            <div>
+              <label htmlFor="register-dob" className="mb-2 block text-sm font-medium text-[#34483a]">Date of birth</label>
+              <input id="register-dob" name="dateOfBirth" type="date" autoComplete="bday" max={new Date().toISOString().slice(0, 10)} required value={dateOfBirth} onChange={(event) => setDateOfBirth(event.target.value)} className="w-full rounded-xl border border-[#d9ded5] bg-white px-4 py-3 text-sm text-[#24362a] outline-none transition focus:border-[#477454] focus:ring-4 focus:ring-[#477454]/10" />
+              <p className="mt-1 text-xs text-[#7a847b]">Your date of birth does not verify your identity or citizenship.</p>
+            </div>
+            <div>
+              <label htmlFor="register-address" className="mb-2 block text-sm font-medium text-[#34483a]">Residential address</label>
+              <textarea id="register-address" name="address" autoComplete="street-address" maxLength={400} rows={3} required value={address} onChange={(event) => setAddress(event.target.value)} className="w-full rounded-xl border border-[#d9ded5] bg-white px-4 py-3 text-sm text-[#24362a] outline-none transition placeholder:text-[#9aa39b] focus:border-[#477454] focus:ring-4 focus:ring-[#477454]/10" placeholder="House number, street, locality, city" />
             </div>
             <div>
               <label htmlFor="register-password" className="mb-2 block text-sm font-medium text-[#34483a]">Password</label>
@@ -154,9 +237,26 @@ export default function Register() {
             <button type="submit" disabled={isSubmitting} className="flex w-full items-center justify-center rounded-xl bg-[#1d4933] px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#163b29] focus:outline-none focus:ring-4 focus:ring-[#477454]/25 disabled:cursor-not-allowed disabled:opacity-65">
               {isSubmitting ? 'Creating your account...' : 'Create account'}
             </button>
-          </form>
+          </form> : <section aria-labelledby="register-email-verification-title" className="space-y-4 rounded-2xl border border-[#e5e2d5] bg-white p-5 shadow-sm">
+            <div>
+              <h3 id="register-email-verification-title" className="text-lg font-semibold text-[#20382a]">Verify your account</h3>
+              <p className="mt-1 text-sm leading-6 text-[#68736a]">Enter the 6-digit code sent to {email.trim()}. Your account will not be available until this step is complete.</p>
+            </div>
+            {verificationMessage && <p role="status" className="text-sm text-[#385743]">{verificationMessage}</p>}
+            <form onSubmit={handleVerifyEmail} className="space-y-3" aria-busy={isSubmitting}>
+              <label htmlFor="register-email-code" className="block text-sm font-medium text-[#34483a]">Email verification code</label>
+              <input id="register-email-code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} required value={verificationCode} onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))} className="w-full rounded-xl border border-[#d9ded5] bg-white px-4 py-3 text-sm text-[#24362a] outline-none focus:border-[#477454] focus:ring-4 focus:ring-[#477454]/10" />
+              <button type="submit" disabled={isSubmitting || verificationCode.length !== 6} className="flex min-h-11 w-full items-center justify-center rounded-xl bg-[#1d4933] px-5 text-sm font-semibold text-white disabled:opacity-60">{isSubmitting ? 'Verifying...' : 'Verify email and complete registration'}</button>
+            </form>
+            <button type="button" onClick={handleResendEmailCode} disabled={isSubmitting || resendSeconds > 0} className="min-h-10 rounded-lg border border-[#cfd8ce] px-3 text-sm font-semibold text-[#1d4933] disabled:opacity-60">{isSubmitting ? 'Sending...' : resendSeconds > 0 ? `Resend in ${resendSeconds}s` : 'Resend code'}</button>
+          </section>}
 
-          <p className="mt-6 text-center text-sm text-[#68736a]">Already have an account? <Link className="font-semibold text-[#1d4933] underline decoration-[#d4ae58] decoration-2 underline-offset-4 hover:text-[#9a7832]" to="/login">Sign in</Link></p>
+          <p className="mt-6 text-center text-sm text-[#68736a]">
+            {t('auth.registrationResumePrompt')}{' '}
+            <Link className="font-semibold text-[#1d4933] underline decoration-[#d4ae58] decoration-2 underline-offset-4 hover:text-[#9a7832]" to="/login">
+              {t('auth.signInToResume')}
+            </Link>
+          </p>
         </div>
       </section>
     </main>

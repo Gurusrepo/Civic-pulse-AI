@@ -143,6 +143,10 @@ test('admin list paginates, excludes merged issues by default, filters merged is
   const merged = await mergedResponse.json();
   assert.equal(merged.items.length, 1);
   assert.equal(merged.items[0].id, mergedIssueId);
+  const allResponse = await request('/api/admin/civic-issues?status=ALL', { userId: 1 });
+  const allIssues = await allResponse.json();
+  assert.equal(allIssues.items.length, db.prepare('SELECT COUNT(*) AS count FROM civic_issues').get().count);
+  assert.ok(allIssues.items.some((item) => item.id === mergedIssueId));
   assert.equal(merged.items[0].canonicalIssueId, issueId);
 });
 
@@ -158,8 +162,45 @@ test('admin issue details show canonical issue and safe report summaries, not ci
   assert.equal(activeIssue.reportCount, 2);
   assert.equal(activeIssue.linkedComplaints.length, 2);
   const safeJson = JSON.stringify(activeIssue.linkedComplaints);
-  assert.doesNotMatch(safeJson, /Citizen A|Citizen B|example\.test|private title|private description|latitude|longitude|user_id/);
+  assert.doesNotMatch(safeJson, /Citizen A|Citizen B|example\.test|user_id/);
+  assert.equal(activeIssue.linkedComplaints[0].title, 'private title B');
+  assert.equal(activeIssue.linkedComplaints[0].description, 'private description B');
+  assert.deepEqual(activeIssue.linkedComplaints[0].location, {
+    latitude: 12.3, longitude: 45.6, accuracyMeters: null
+  });
+  assert.equal(activeIssue.linkedComplaints[0].aiAssessment.severity, 'HIGH');
   assert.equal(activeIssue.assignmentHistory.length, 0);
+});
+
+test('issue filters cover department, category, ward, team, and escaped report text search', async () => {
+  const wardId = Number(db.prepare("INSERT INTO wards(code,name) VALUES('FILTER-WARD','Filter Ward')").run().lastInsertRowid);
+  const teamId = Number(db.prepare(`INSERT INTO ward_teams(ward_id,name,department)
+    VALUES(?,'Filter Team','Roads & Infrastructure')`).run(wardId).lastInsertRowid);
+  db.prepare(`INSERT INTO ward_team_memberships(team_id,officer_user_id,added_by_admin_id)
+    VALUES(?,?,1)`).run(teamId, 3);
+  const assignment = await request(`/api/admin/civic-issues/${issueId}/team-assignments`, {
+    userId: 1,
+    method: 'POST',
+    body: { teamId, routingDepartment: 'Roads & Infrastructure' }
+  });
+  assert.equal(assignment.status, 201);
+
+  const cases = [
+    [`department=${encodeURIComponent('Roads & Infrastructure')}`, issueId],
+    ['category=DRAINAGE', issueId],
+    [`wardId=${wardId}`, issueId],
+    [`teamId=${teamId}`, issueId],
+    ['search=private%20title%20B', issueId],
+    ['search=private%25title', null]
+  ];
+  for (const [query, expectedIssueId] of cases) {
+    const response = await request(`/api/admin/civic-issues?${query}`, { userId: 1 });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.items.some((item) => item.id === issueId), expectedIssueId === issueId, query);
+  }
+  const invalid = await request('/api/admin/civic-issues?teamId=0', { userId: 1 });
+  assert.equal(invalid.status, 400);
 });
 
 test('citizens and officers are rejected from admin endpoints; citizens retain only owned complaints', async () => {

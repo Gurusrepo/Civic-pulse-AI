@@ -33,9 +33,13 @@ after(() => {
 test('fresh initialization applies each migration once and creates the full schema', () => {
   const fresh = new Database(':memory:');
   fresh.pragma('foreign_keys = ON');
-  assert.deepEqual(migrateDatabase(fresh), ['001_core_schema', '002_civic_issues', '003_issue_assignments', '004_issue_grouping', '005_ward_team_management', '006_issue_team_assignments', '007_officer_workflow_evidence', '008_citizen_resolution_verification', '009_announcements', '010_announcement_visibility', '011_notifications', '012_profile_images', '013_citizen_preferences', '014_profile_support_password_reset', '015_citizen_verification', '016_account_lifecycle', '017_auth_phone_and_verification', '018_verification_challenge_destination', '019_auth_otp_purposes_and_rate_limits', '020_required_verification_destination', '021_email_only_verification', '022_registration_otp_delivery_state']);
+  assert.deepEqual(migrateDatabase(fresh), ['001_core_schema', '002_civic_issues', '003_issue_assignments', '004_issue_grouping', '005_ward_team_management', '006_issue_team_assignments', '007_officer_workflow_evidence', '008_citizen_resolution_verification', '009_announcements', '010_announcement_visibility', '011_notifications', '012_profile_images', '013_citizen_preferences', '014_profile_support_password_reset', '015_citizen_verification', '016_account_lifecycle', '017_auth_phone_and_verification', '018_verification_challenge_destination', '019_auth_otp_purposes_and_rate_limits', '020_required_verification_destination', '021_email_only_verification', '022_registration_otp_delivery_state', '023_complaint_address', '024_support_submission_status', '025_support_suggestions_workflow', '026_announcement_management', '027_officer_management']);
   assert.deepEqual(migrateDatabase(fresh), []);
-  assert.equal(fresh.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 22);
+  assert.equal(fresh.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 27);
+  assert.ok(fresh.prepare('PRAGMA table_info(citizen_support_submissions)').all().some((column) => column.name === 'status'));
+  assert.ok(fresh.prepare('PRAGMA table_info(citizen_support_submissions)').all().some((column) => column.name === 'admin_notes'));
+  assert.ok(fresh.prepare('PRAGMA table_info(citizen_support_submissions)').all().some((column) => column.name === 'updated_at'));
+  assert.ok(fresh.prepare('PRAGMA table_info(citizen_support_submissions)').all().some((column) => column.name === 'closed_at'));
   assert.ok(fresh.prepare('PRAGMA table_info(users)').all().some((column) => column.name === 'date_of_birth'));
   assert.ok(fresh.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='citizen_support_submissions'").get());
   assert.ok(fresh.prepare('PRAGMA table_info(users)').all().some((column) => column.name === 'notification_preferences'));
@@ -76,6 +80,89 @@ test('fresh initialization applies each migration once and creates the full sche
   fresh.close();
 });
 
+test('migration 026 preserves announcements and enforces priority and UTC scheduling', () => {
+  const announcementsDb = new Database(':memory:');
+  announcementsDb.pragma('foreign_keys = ON');
+  announcementsDb.exec('CREATE TABLE users (id INTEGER PRIMARY KEY, role TEXT NOT NULL)');
+  announcementsDb.prepare('INSERT INTO users (id, role) VALUES (1, ?)').run('ADMIN');
+
+  for (const version of ['009_announcements', '010_announcement_visibility']) {
+    const migration = migrations.find((candidate) => candidate.version === version);
+    assert.ok(migration, `Expected migration ${version} to be registered`);
+    migration.up(announcementsDb);
+  }
+
+  announcementsDb.prepare(`INSERT INTO civic_announcements
+    (id,title,description,published_by_admin_id,published_at,created_at,is_published,is_public)
+    VALUES
+      (1,'Published notice','Existing public content',1,'2026-01-02T03:04:05.000Z',
+       '2026-01-01T00:00:00.000Z',1,1),
+      (2,'Unpublished notice','Existing unpublished content',1,'2026-01-04T03:04:05.000Z',
+       '2026-01-03T00:00:00.000Z',0,0)`).run();
+
+  const originalRows = announcementsDb.prepare(`SELECT id,title,description,published_by_admin_id,
+    published_at,created_at,is_published,is_public
+    FROM civic_announcements ORDER BY id`).all();
+  const migration = migrations.find((candidate) => candidate.version === '026_announcement_management');
+  assert.ok(migration, 'Expected migration 026 to be registered');
+  migration.up(announcementsDb);
+
+  const migratedRows = announcementsDb.prepare(`SELECT id,title,description,published_by_admin_id,
+    published_at,created_at,is_published,is_public,priority,starts_at,expires_at
+    FROM civic_announcements ORDER BY id`).all();
+  assert.deepEqual(migratedRows.map(({ priority, starts_at, expires_at, ...row }) => row), originalRows);
+  assert.deepEqual(migratedRows.map(({ priority, starts_at, expires_at }) =>
+    ({ priority, starts_at, expires_at })), [
+    { priority: 'NORMAL', starts_at: null, expires_at: null },
+    { priority: 'NORMAL', starts_at: null, expires_at: null }
+  ]);
+  assert.deepEqual(migratedRows.map((row) => row.is_published), [1, 0]);
+
+  const insertAnnouncement = announcementsDb.prepare(`INSERT INTO civic_announcements
+    (title,description,published_by_admin_id,priority,starts_at,expires_at)
+    VALUES (?,'Test content',1,?,?,?)`);
+  for (const priority of ['LOW', 'NORMAL', 'HIGH']) {
+    insertAnnouncement.run(`Priority ${priority}`, priority, null, null);
+  }
+  announcementsDb.prepare(`INSERT INTO civic_announcements
+    (title,description,published_by_admin_id)
+    VALUES ('Default priority','Test content',1)`).run();
+  assert.equal(announcementsDb.prepare(`SELECT priority FROM civic_announcements
+    WHERE title='Default priority'`).get().priority, 'NORMAL');
+  assert.throws(() => insertAnnouncement.run('Invalid priority', 'URGENT', null, null), {
+    code: 'SQLITE_CONSTRAINT_CHECK'
+  });
+
+  insertAnnouncement.run('Start only', 'NORMAL', '2026-01-01T00:00:00.000Z', null);
+  insertAnnouncement.run('Expiry only', 'NORMAL', null, '2026-01-02T00:00:00.000Z');
+  insertAnnouncement.run(
+    'Scheduled',
+    'HIGH',
+    '2026-01-01T00:00:00.000Z',
+    '2026-01-02T00:00:00.000Z'
+  );
+  assert.throws(() => insertAnnouncement.run(
+    'Same instant',
+    'NORMAL',
+    '2026-01-02T00:00:00.000Z',
+    '2026-01-02T00:00:00.000Z'
+  ), { code: 'SQLITE_CONSTRAINT_CHECK' });
+  assert.throws(() => insertAnnouncement.run(
+    'Earlier expiry',
+    'NORMAL',
+    '2026-01-02T00:00:00.000Z',
+    '2026-01-01T00:00:00.000Z'
+  ), { code: 'SQLITE_CONSTRAINT_CHECK' });
+  assert.throws(() => insertAnnouncement.run(
+    'Non-UTC schedule',
+    'NORMAL',
+    '2026-01-01T00:00:00+01:00',
+    null
+  ), { code: 'SQLITE_CONSTRAINT_CHECK' });
+
+  announcementsDb.close();
+});
+
 test('existing complaint, media, user and AI assessment data survive issue backfill', () => {
   const existing = new Database(':memory:');
   existing.pragma('foreign_keys = ON');
@@ -93,7 +180,7 @@ test('existing complaint, media, user and AI assessment data survive issue backf
     VALUES (31, 11, 'SUCCEEDED', 'ROAD_DAMAGE', 'Roads & Infrastructure', 'MEDIUM',
       'A reported road defect.', '[]', 0.8, 0, '')`).run();
 
-  assert.deepEqual(migrateDatabase(existing), ['001_core_schema', '002_civic_issues', '003_issue_assignments', '004_issue_grouping', '005_ward_team_management', '006_issue_team_assignments', '007_officer_workflow_evidence', '008_citizen_resolution_verification', '009_announcements', '010_announcement_visibility', '011_notifications', '012_profile_images', '013_citizen_preferences', '014_profile_support_password_reset', '015_citizen_verification', '016_account_lifecycle', '017_auth_phone_and_verification', '018_verification_challenge_destination', '019_auth_otp_purposes_and_rate_limits', '020_required_verification_destination', '021_email_only_verification', '022_registration_otp_delivery_state']);
+  assert.deepEqual(migrateDatabase(existing), ['001_core_schema', '002_civic_issues', '003_issue_assignments', '004_issue_grouping', '005_ward_team_management', '006_issue_team_assignments', '007_officer_workflow_evidence', '008_citizen_resolution_verification', '009_announcements', '010_announcement_visibility', '011_notifications', '012_profile_images', '013_citizen_preferences', '014_profile_support_password_reset', '015_citizen_verification', '016_account_lifecycle', '017_auth_phone_and_verification', '018_verification_challenge_destination', '019_auth_otp_purposes_and_rate_limits', '020_required_verification_destination', '021_email_only_verification', '022_registration_otp_delivery_state', '023_complaint_address', '024_support_submission_status', '025_support_suggestions_workflow', '026_announcement_management', '027_officer_management']);
   assert.equal(existing.prepare('SELECT account_status FROM users WHERE id=1').get().account_status, 'ACTIVE');
   const linked = existing.prepare(`SELECT c.id, c.user_id, c.status, c.civic_issue_id, i.status AS issue_status
     FROM complaints c JOIN civic_issues i ON i.id = c.civic_issue_id WHERE c.id = 11`).get();
@@ -108,7 +195,7 @@ test('existing complaint, media, user and AI assessment data survive issue backf
 
   const issueCount = existing.prepare('SELECT COUNT(*) AS count FROM civic_issues').get().count;
   assert.deepEqual(migrateDatabase(existing), []);
-  assert.equal(existing.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 22);
+  assert.equal(existing.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 27);
   assert.equal(existing.prepare('SELECT COUNT(*) AS count FROM civic_issues').get().count, issueCount);
   assert.throws(() => existing.prepare('UPDATE complaints SET civic_issue_id = 999 WHERE id = 11').run());
   existing.close();
@@ -133,7 +220,7 @@ test('ward migration preserves existing individual assignment and append-only hi
     legacy.prepare('INSERT INTO schema_migrations(version) VALUES(?)').run(version);
   }
 
-  assert.deepEqual(migrateDatabase(legacy), ['005_ward_team_management', '006_issue_team_assignments', '007_officer_workflow_evidence', '008_citizen_resolution_verification', '009_announcements', '010_announcement_visibility', '011_notifications', '012_profile_images', '013_citizen_preferences', '014_profile_support_password_reset', '015_citizen_verification', '016_account_lifecycle', '017_auth_phone_and_verification', '018_verification_challenge_destination', '019_auth_otp_purposes_and_rate_limits', '020_required_verification_destination', '021_email_only_verification', '022_registration_otp_delivery_state']);
+  assert.deepEqual(migrateDatabase(legacy), ['005_ward_team_management', '006_issue_team_assignments', '007_officer_workflow_evidence', '008_citizen_resolution_verification', '009_announcements', '010_announcement_visibility', '011_notifications', '012_profile_images', '013_citizen_preferences', '014_profile_support_password_reset', '015_citizen_verification', '016_account_lifecycle', '017_auth_phone_and_verification', '018_verification_challenge_destination', '019_auth_otp_purposes_and_rate_limits', '020_required_verification_destination', '021_email_only_verification', '022_registration_otp_delivery_state', '023_complaint_address', '024_support_submission_status', '025_support_suggestions_workflow', '026_announcement_management', '027_officer_management']);
   assert.equal(legacy.prepare('SELECT assigned_officer_id FROM civic_issues WHERE id=?').get(issueId).assigned_officer_id, 2);
   assert.deepEqual(legacy.prepare(`SELECT event_type,officer_id,admin_user_id
     FROM civic_issue_assignment_events WHERE civic_issue_id=?`).get(issueId), {
@@ -191,13 +278,18 @@ test('OTP purpose migration preserves challenge data while assigning safe purpos
 test('email-only migration preserves user records, phone data and email challenges', () => {
   const legacy = new Database(':memory:');
   legacy.pragma('foreign_keys = ON');
-  for (const migration of migrations.slice(0, -2)) migration.up(legacy);
+  const emailOnlyMigrationIndex = migrations.findIndex(
+    ({ version }) => version === '021_email_only_verification'
+  );
+  assert.notEqual(emailOnlyMigrationIndex, -1);
+  const migrationsBeforeEmailOnly = migrations.slice(0, emailOnlyMigrationIndex);
+  for (const migration of migrationsBeforeEmailOnly) migration.up(legacy);
   legacy.exec(`CREATE TABLE schema_migrations (
     version TEXT PRIMARY KEY,
     applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
   )`);
   const recordMigration = legacy.prepare('INSERT INTO schema_migrations(version) VALUES(?)');
-  for (const migration of migrations.slice(0, -2)) recordMigration.run(migration.version);
+  for (const migration of migrationsBeforeEmailOnly) recordMigration.run(migration.version);
 
   legacy.prepare(`INSERT INTO users
     (id,display_name,email,password_hash,role,phone_number,date_of_birth,address,email_verified,
@@ -222,7 +314,12 @@ test('email-only migration preserves user records, phone data and email challeng
 
   assert.deepEqual(migrateDatabase(legacy), [
     '021_email_only_verification',
-    '022_registration_otp_delivery_state'
+    '022_registration_otp_delivery_state',
+    '023_complaint_address',
+    '024_support_submission_status',
+    '025_support_suggestions_workflow',
+    '026_announcement_management',
+    '027_officer_management'
   ]);
   assert.deepEqual(legacy.prepare(`SELECT id,display_name,email,phone_number,email_verified,account_status
     FROM users ORDER BY id`).all(), [
@@ -234,6 +331,9 @@ test('email-only migration preserves user records, phone data and email challeng
   assert.equal(userColumns.includes('mobile_verified'), false);
   assert.equal(userColumns.includes('mobile_verified_at'), false);
   assert.equal(legacy.prepare('SELECT COUNT(*) AS count FROM complaints WHERE user_id=1').get().count, 1);
+  assert.ok(legacy.prepare('PRAGMA table_info(complaints)').all()
+    .some((column) => column.name === 'address'));
+  assert.equal(legacy.prepare('SELECT address FROM complaints WHERE user_id=1').get().address, null);
   assert.deepEqual(legacy.prepare(`SELECT channel,purpose,destination,code_hash
     FROM user_verification_challenges`).all(), [
     { channel: 'EMAIL', purpose: 'REGISTRATION', destination: 'pending@example.test', code_hash: 'email-hash' }
@@ -252,8 +352,149 @@ test('email-only migration preserves user records, phone data and email challeng
   legacy.close();
 });
 
+test('migration 025 resets legacy suggestion statuses and preserves bug report data', () => {
+  const db025 = new Database(':memory:');
+  db025.pragma('foreign_keys = ON');
+
+  // Apply migrations 001-024 via migrateDatabase (stops before 025 by temporarily removing it)
+  // We do this by running fresh migrateDatabase which applies all migrations including 025.
+  // Instead, we use a custom approach: apply each migration in the correct order.
+  // migrateDatabase handles the requiresForeignKeysDisabled migrations correctly.
+  // We seed data AFTER migrations 024 but BEFORE 025 runs.
+
+  // Step 1: Apply migrations 001-024 manually but using the same pragma approach as migrateDatabase
+  // We know migration 021 and 025 requiresForeignKeysDisabled.
+  // Run ALL required-FK-disabled migrations together (021 is in 1-24 slice).
+  const migrationIndex024 = migrations.findIndex(({ version }) => version === '024_support_submission_status');
+  const migrations024 = migrations.slice(0, migrationIndex024 + 1);
+
+  // Build schema_migrations table first
+  db025.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+    version TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  )`);
+
+  // Apply with FK and legacy_alter_table handling (mimics migrateDatabase behavior for 1-24)
+  const needsFKDisable = migrations024.some((m) => m.requiresForeignKeysDisabled);
+  if (needsFKDisable) {
+    db025.pragma('foreign_keys = OFF');
+    db025.pragma('legacy_alter_table = ON');
+  }
+  try {
+    const applyTx = db025.transaction(() => {
+      const isApplied = db025.prepare('SELECT 1 FROM schema_migrations WHERE version = ?');
+      const recordApplied = db025.prepare('INSERT INTO schema_migrations (version) VALUES (?)');
+      for (const migration of migrations024) {
+        if (isApplied.get(migration.version)) continue;
+        migration.up(db025);
+        recordApplied.run(migration.version);
+      }
+    });
+    applyTx.immediate();
+  } finally {
+    if (needsFKDisable) {
+      db025.pragma('legacy_alter_table = OFF');
+      db025.pragma('foreign_keys = ON');
+    }
+  }
+
+  // Step 2: Seed pre-migration data
+  db025.prepare(`INSERT INTO users (id, display_name, email, password_hash, role, email_verified, account_status)
+    VALUES (1, 'Seed Citizen', 'seed@example.test', 'hash', 'CITIZEN', 1, 'ACTIVE')`).run();
+
+  db025.prepare(`INSERT INTO citizen_support_submissions
+    (reference_id, user_id, kind, title, category, description, status, closed_at)
+    VALUES ('NM-SUGG-RES', 1, 'SUGGESTION', 'Legacy resolved suggestion', 'USER_EXPERIENCE',
+      'Please add dark mode to the app.', 'RESOLVED', '2026-11-20T01:00:00.000Z')`).run();
+  db025.prepare(`INSERT INTO citizen_support_submissions
+    (reference_id, user_id, kind, title, category, description, status, closed_at)
+    VALUES ('NM-SUGG-REJ', 1, 'SUGGESTION', 'Legacy rejected suggestion', 'NEW_FEATURE',
+      'Add calendar integration.', 'REJECTED', '2026-11-20T01:00:00.000Z')`).run();
+  db025.prepare(`INSERT INTO citizen_support_submissions
+    (reference_id, user_id, kind, title, category, description, status, closed_at)
+    VALUES ('NM-SUGG-NEW', 1, 'SUGGESTION', 'Legacy new suggestion', 'ACCESSIBILITY',
+      'Improve font size settings.', 'NEW', NULL)`).run();
+  db025.prepare(`INSERT INTO citizen_support_submissions
+    (reference_id, user_id, kind, title, category, description, status, closed_at)
+    VALUES ('NM-BUG-RES', 1, 'BUG_REPORT', 'Login fails on android', 'LOGIN_ISSUE',
+      'OTP not received on android devices.', 'RESOLVED', '2026-11-20T01:00:00.000Z')`).run();
+  db025.prepare(`INSERT INTO citizen_support_submissions
+    (reference_id, user_id, kind, title, category, description, status, closed_at)
+    VALUES ('NM-BUG-REJ', 1, 'BUG_REPORT', 'Profile image bug', 'PROFILE_ISSUE',
+      'Uploading profile image fails with 500.', 'REJECTED', '2026-11-20T01:00:00.000Z')`).run();
+
+  // Step 3: Apply pending migrations 025-027 via migrateDatabase
+  const applied = migrateDatabase(db025);
+  assert.deepEqual(applied, ['025_support_suggestions_workflow', '026_announcement_management', '027_officer_management']);
+
+  // Assert: Legacy RESOLVED suggestion → status=NEW, closed_at=null, rejection_reason=null
+  const resolvedSugg = db025.prepare('SELECT status, closed_at, rejection_reason FROM citizen_support_submissions WHERE reference_id=?').get('NM-SUGG-RES');
+  assert.equal(resolvedSugg.status, 'NEW');
+  assert.equal(resolvedSugg.closed_at, null);
+  assert.equal(resolvedSugg.rejection_reason, null);
+
+  // Assert: Legacy REJECTED suggestion → status=NEW, closed_at=null, rejection_reason=null
+  const rejectedSugg = db025.prepare('SELECT status, closed_at, rejection_reason FROM citizen_support_submissions WHERE reference_id=?').get('NM-SUGG-REJ');
+  assert.equal(rejectedSugg.status, 'NEW');
+  assert.equal(rejectedSugg.closed_at, null);
+  assert.equal(rejectedSugg.rejection_reason, null);
+
+  // Assert: Legacy NEW suggestion stays NEW, closed_at stays null
+  const newSugg = db025.prepare('SELECT status, closed_at FROM citizen_support_submissions WHERE reference_id=?').get('NM-SUGG-NEW');
+  assert.equal(newSugg.status, 'NEW');
+  assert.equal(newSugg.closed_at, null);
+
+  // Assert: BUG_REPORT RESOLVED → still RESOLVED with closed_at preserved
+  const resolvedBug = db025.prepare('SELECT status, closed_at FROM citizen_support_submissions WHERE reference_id=?').get('NM-BUG-RES');
+  assert.equal(resolvedBug.status, 'RESOLVED');
+  assert.equal(resolvedBug.closed_at, '2026-11-20T01:00:00.000Z');
+
+  // Assert: BUG_REPORT REJECTED → still REJECTED with closed_at preserved
+  const rejectedBug = db025.prepare('SELECT status, closed_at FROM citizen_support_submissions WHERE reference_id=?').get('NM-BUG-REJ');
+  assert.equal(rejectedBug.status, 'REJECTED');
+  assert.equal(rejectedBug.closed_at, '2026-11-20T01:00:00.000Z');
+
+  // Assert: INSERT SUGGESTION with REJECTED + rejection_reason=null → SQLITE_CONSTRAINT_CHECK
+  assert.throws(() => db025.prepare(`INSERT INTO citizen_support_submissions
+    (reference_id, user_id, kind, title, category, description, status, rejection_reason)
+    VALUES ('NM-SUGG-BAD', 1, 'SUGGESTION', 'Bad suggestion', 'OTHER',
+      'No rejection reason provided.', 'REJECTED', NULL)`).run(), (err) => {
+    return err.code === 'SQLITE_CONSTRAINT_CHECK';
+  });
+
+  // Assert: INSERT BUG_REPORT with UNDER_REVIEW → SQLITE_CONSTRAINT_CHECK
+  assert.throws(() => db025.prepare(`INSERT INTO citizen_support_submissions
+    (reference_id, user_id, kind, title, category, description, status)
+    VALUES ('NM-BUG-BAD', 1, 'BUG_REPORT', 'Bad bug report', 'OTHER',
+      'Under review is not valid for bug reports.', 'UNDER_REVIEW')`).run(), (err) => {
+    return err.code === 'SQLITE_CONSTRAINT_CHECK';
+  });
+
+  // Assert: INSERT SUGGESTION with IN_PROGRESS → SQLITE_CONSTRAINT_CHECK
+  assert.throws(() => db025.prepare(`INSERT INTO citizen_support_submissions
+    (reference_id, user_id, kind, title, category, description, status)
+    VALUES ('NM-SUGG-BAD2', 1, 'SUGGESTION', 'In progress suggestion', 'OTHER',
+      'In progress is not valid for suggestions.', 'IN_PROGRESS')`).run(), (err) => {
+    return err.code === 'SQLITE_CONSTRAINT_CHECK';
+  });
+
+  // Assert: PRAGMA foreign_key_check → 0 violations
+  assert.equal(db025.pragma('foreign_key_check').length, 0);
+
+  // Assert: Both indexes exist
+  assert.ok(db025.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_citizen_support_user_created'").get());
+  assert.ok(db025.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_citizen_support_kind_status_created'").get());
+
+  // Assert: user_id FK REFERENCES users(id) ON DELETE RESTRICT preserved
+  assert.throws(() => db025.prepare('DELETE FROM users WHERE id=1').run(), (err) => {
+    return err.code === 'SQLITE_CONSTRAINT_TRIGGER' || err.code === 'SQLITE_CONSTRAINT_FOREIGNKEY' || err.message.includes('FOREIGN KEY');
+  });
+
+  db025.close();
+});
+
 test('the shared startup database can be initialized repeatedly without reapplying migrations', () => {
-  assert.deepEqual(migrateDatabase(defaultDb), ['001_core_schema', '002_civic_issues', '003_issue_assignments', '004_issue_grouping', '005_ward_team_management', '006_issue_team_assignments', '007_officer_workflow_evidence', '008_citizen_resolution_verification', '009_announcements', '010_announcement_visibility', '011_notifications', '012_profile_images', '013_citizen_preferences', '014_profile_support_password_reset', '015_citizen_verification', '016_account_lifecycle', '017_auth_phone_and_verification', '018_verification_challenge_destination', '019_auth_otp_purposes_and_rate_limits', '020_required_verification_destination', '021_email_only_verification', '022_registration_otp_delivery_state']);
+  assert.deepEqual(migrateDatabase(defaultDb), ['001_core_schema', '002_civic_issues', '003_issue_assignments', '004_issue_grouping', '005_ward_team_management', '006_issue_team_assignments', '007_officer_workflow_evidence', '008_citizen_resolution_verification', '009_announcements', '010_announcement_visibility', '011_notifications', '012_profile_images', '013_citizen_preferences', '014_profile_support_password_reset', '015_citizen_verification', '016_account_lifecycle', '017_auth_phone_and_verification', '018_verification_challenge_destination', '019_auth_otp_purposes_and_rate_limits', '020_required_verification_destination', '021_email_only_verification', '022_registration_otp_delivery_state', '023_complaint_address', '024_support_submission_status', '025_support_suggestions_workflow', '026_announcement_management', '027_officer_management']);
   assert.deepEqual(migrateDatabase(defaultDb), []);
-  assert.equal(defaultDb.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 22);
+  assert.equal(defaultDb.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 27);
 });

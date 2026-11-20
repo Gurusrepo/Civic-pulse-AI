@@ -66,6 +66,11 @@ export async function createReadUrl(objectKey, mimeType) {
   return data.signedUrl;
 }
 
+export async function createComplaintReadUrl(objectKey, mimeType) {
+  if (!objectKey.startsWith('complaints/')) throw new Error('Invalid complaint media object key');
+  return createReadUrl(objectKey, mimeType);
+}
+
 export async function createRepairEvidenceReadUrl(objectKey, mimeType) {
   if (!objectKey.startsWith('repair-evidence/')) throw new Error('Invalid repair evidence object key');
   return createReadUrl(objectKey, mimeType);
@@ -89,6 +94,11 @@ export async function createProfileImageReadUrl(objectKey, mimeType) {
 export async function deleteProfileImageObject(objectKey) {
   if (!objectKey.startsWith('profile-images/')) throw new Error('Invalid profile image object key');
   return deleteObject(objectKey);
+}
+
+export async function createSupportAttachmentReadUrl(objectKey, mimeType) {
+  if (!objectKey.startsWith('support-attachments/')) throw new Error('Invalid support attachment object key');
+  return createReadUrl(objectKey, mimeType);
 }
 
 export async function deleteSupportAttachment(objectKey) {

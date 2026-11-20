@@ -57,7 +57,6 @@ export default function ManageAnnouncements() {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div>
-        <Link to="/admin" className="text-sm font-semibold text-[#1d4933] underline underline-offset-4">Back to admin area</Link>
         <p className="mt-5 text-xs font-semibold uppercase tracking-[0.16em] text-[#9a7832]">Community updates</p>
         <h1 className="mt-1 text-3xl font-semibold tracking-tight text-[#20382a]">Publish an announcement</h1>
         <p className="mt-2 text-sm leading-6 text-[#68736a]">Published announcements are immediately visible to citizens.</p>

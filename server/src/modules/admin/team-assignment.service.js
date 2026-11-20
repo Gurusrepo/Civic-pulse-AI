@@ -10,7 +10,8 @@ const findIssue = db.prepare(`SELECT id,status,merged_into_issue_id,assigned_off
   FROM civic_issues WHERE id=?`);
 const findTeam = db.prepare(`SELECT t.id,t.name,t.department,t.is_active,w.id AS ward_id,w.code AS ward_code,w.name AS ward_name,w.is_active AS ward_is_active,
   (SELECT COUNT(*) FROM ward_team_memberships m JOIN users u ON u.id=m.officer_user_id
-    WHERE m.team_id=t.id AND m.removed_at IS NULL AND u.role='OFFICER') AS active_member_count
+    WHERE m.team_id=t.id AND m.removed_at IS NULL
+      AND u.role='OFFICER' AND u.account_status='ACTIVE') AS active_member_count
   FROM ward_teams t JOIN wards w ON w.id=t.ward_id WHERE t.id=?`);
 
 function requireAdmin(adminId) {

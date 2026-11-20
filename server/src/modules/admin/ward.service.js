@@ -12,7 +12,10 @@ const getWardRow = db.prepare(`SELECT w.id,w.code,w.name,w.is_active,w.created_a
   FROM wards w WHERE w.id=?`);
 const getTeamRow = db.prepare(`SELECT t.id,t.ward_id,t.name,t.department,t.is_active,t.created_at,t.updated_at,
   w.code AS ward_code,w.name AS ward_name,
-  (SELECT COUNT(*) FROM ward_team_memberships m WHERE m.team_id=t.id AND m.removed_at IS NULL) AS active_member_count
+  (SELECT COUNT(*) FROM ward_team_memberships m
+    WHERE m.team_id=t.id AND m.removed_at IS NULL) AS membership_count,
+  (SELECT COUNT(*) FROM ward_team_memberships m JOIN users u ON u.id=m.officer_user_id
+    WHERE m.team_id=t.id AND m.removed_at IS NULL AND u.role='OFFICER' AND u.account_status='ACTIVE') AS active_member_count
   FROM ward_teams t JOIN wards w ON w.id=t.ward_id WHERE t.id=?`);
 
 function mapWard(row) {
@@ -106,7 +109,10 @@ export function listTeams({ wardId, includeInactive = false } = {}) {
   if (wardId !== undefined) { conditions.push('t.ward_id=?'); params.push(wardId); }
   return db.prepare(`SELECT t.id,t.ward_id,t.name,t.department,t.is_active,t.created_at,t.updated_at,
       w.code AS ward_code,w.name AS ward_name,
-      (SELECT COUNT(*) FROM ward_team_memberships m WHERE m.team_id=t.id AND m.removed_at IS NULL) AS active_member_count
+      (SELECT COUNT(*) FROM ward_team_memberships m
+        WHERE m.team_id=t.id AND m.removed_at IS NULL) AS membership_count,
+      (SELECT COUNT(*) FROM ward_team_memberships m JOIN users u ON u.id=m.officer_user_id
+        WHERE m.team_id=t.id AND m.removed_at IS NULL AND u.role='OFFICER' AND u.account_status='ACTIVE') AS active_member_count
     FROM ward_teams t JOIN wards w ON w.id=t.ward_id ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
     ORDER BY w.code,t.department,t.name,t.id`).all(...params).map(mapTeam);
 }
@@ -126,7 +132,7 @@ const updateTeamTx = db.transaction((id, input, adminId) => {
   if (!ward) throw new WardAdminError('Ward not found', 404);
   if (active && !ward.is_active) throw new WardAdminError('An active team requires an active ward', 409);
   if (!active && assignedIssuesForTeam(id)) throw new WardAdminError('Unassign issues before deactivating this team', 409);
-  if (!active && current.active_member_count) throw new WardAdminError('Remove active team members before deactivating this team', 409);
+  if (!active && current.membership_count) throw new WardAdminError('Remove active team members before deactivating this team', 409);
   if (wardId !== current.ward_id && assignedIssuesForTeam(id)) throw new WardAdminError('Unassign issues before moving this team to another ward', 409);
   if (department !== current.department && assignedIssuesForTeam(id)) throw new WardAdminError('Unassign issues before changing this team department', 409);
   ensureTeamNameAvailable(wardId, name, id);
@@ -139,7 +145,7 @@ export const updateTeam = (id, input, adminId) => updateTeamTx.immediate(id, inp
 
 export function listTeamMemberships(teamId, { includeHistory = false } = {}) {
   if (!getTeamRow.get(teamId)) throw new WardAdminError('Ward team not found', 404);
-  return db.prepare(`SELECT m.id,m.team_id,m.officer_user_id,u.display_name,u.email,
+  return db.prepare(`SELECT m.id,m.team_id,m.officer_user_id,u.display_name,u.email,u.account_status,
       m.added_by_admin_id,added.display_name AS added_by_name,m.added_at,
       m.removed_by_admin_id,removed.display_name AS removed_by_name,m.removed_at
     FROM ward_team_memberships m JOIN users u ON u.id=m.officer_user_id
@@ -148,7 +154,7 @@ export function listTeamMemberships(teamId, { includeHistory = false } = {}) {
     WHERE m.team_id=? ${includeHistory ? '' : 'AND m.removed_at IS NULL'}
     ORDER BY m.added_at DESC,m.id DESC`).all(teamId).map(row => ({
       membershipId: row.id, teamId: row.team_id,
-      officer: { id: row.officer_user_id, name: row.display_name, email: row.email },
+      officer: { id: row.officer_user_id, name: row.display_name, email: row.email, status: row.account_status },
       addedBy: { id: row.added_by_admin_id, name: row.added_by_name }, addedAt: row.added_at,
       active: row.removed_at === null,
       removedBy: row.removed_by_admin_id === null ? null : { id: row.removed_by_admin_id, name: row.removed_by_name },
@@ -163,7 +169,7 @@ const addMemberTx = db.transaction((teamId, officerId, adminId) => {
   if (!team.is_active || !db.prepare('SELECT is_active FROM wards WHERE id=?').get(team.ward_id).is_active) {
     throw new WardAdminError('Cannot add members to an inactive team or ward', 409);
   }
-  if (!db.prepare("SELECT id FROM users WHERE id=? AND role='OFFICER'").get(officerId)) {
+  if (!db.prepare("SELECT id FROM users WHERE id=? AND role='OFFICER' AND account_status='ACTIVE'").get(officerId)) {
     throw new WardAdminError('Team member must be an active OFFICER account', 400);
   }
   if (db.prepare('SELECT id FROM ward_team_memberships WHERE team_id=? AND officer_user_id=? AND removed_at IS NULL').get(teamId, officerId)) {
@@ -183,7 +189,8 @@ const removeMemberTx = db.transaction((teamId, officerId, adminId) => {
     throw new WardAdminError('Active team membership not found', 404);
   }
   const activeMembers = team.active_member_count;
-  if (activeMembers <= 1 && assignedIssuesForTeam(teamId)) {
+  const memberAccount = db.prepare('SELECT account_status FROM users WHERE id=? AND role=\'OFFICER\'').get(officerId);
+  if (memberAccount?.account_status === 'ACTIVE' && activeMembers <= 1 && assignedIssuesForTeam(teamId)) {
     throw new WardAdminError('Cannot remove the last active team member while issues are assigned', 409);
   }
   const result = db.prepare(`UPDATE ward_team_memberships SET removed_by_admin_id=?,

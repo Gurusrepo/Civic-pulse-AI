@@ -5,6 +5,7 @@ const get = (path, params) => body(apiClient.get(path, { params }));
 const post = (path, payload) => body(apiClient.post(path, payload));
 const patch = (path, payload) => body(apiClient.patch(path, payload));
 const remove = (path) => body(apiClient.delete(path));
+export const getAdminDashboard = () => get('/admin/dashboard');
 const issue = (id) => `/admin/civic-issues/${id}`;
 const ward = (id) => `/admin/wards/${id}`;
 const team = (id) => `/admin/ward-teams/${id}`;
@@ -38,3 +39,17 @@ export const rejectDuplicate = (id, payload) => post(`/admin/duplicate-candidate
 export const listDisputes = (params = {}) => get('/admin/disputes', params);
 export const getDispute = (issueId) => get(`/admin/disputes/${issueId}`);
 export const reviewDispute = (issueId, payload) => post(`/admin/disputes/${issueId}/review`, payload);
+
+export const listOfficers = (params = {}) => get('/admin/officers', params);
+export const getOfficer = (id) => get(`/admin/officers/${id}`);
+export const createOfficer = (payload) => post('/admin/officers', payload);
+export const resendOfficerInvitation = (id) => post(`/admin/officers/${id}/invitation`);
+export const updateOfficerStatus = (id, payload) => patch(`/admin/officers/${id}/status`, payload);
+
+export const listReportedProblems = (params = {}) => get('/admin/reported-problems', params);
+export const getReportedProblem = (referenceId) => get(`/admin/reported-problems/${referenceId}`);
+export const updateReportedProblemStatus = (referenceId, payload) => patch(`/admin/reported-problems/${referenceId}/status`, payload);
+
+export const listSuggestions = (params = {}) => get('/admin/suggestions', params);
+export const getSuggestion = (referenceId) => get(`/admin/suggestions/${referenceId}`);
+export const updateSuggestionStatus = (referenceId, payload) => patch(`/admin/suggestions/${referenceId}/status`, payload);

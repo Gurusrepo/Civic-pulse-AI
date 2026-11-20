@@ -75,36 +75,88 @@ export function AuthProvider({ children }) {
     setRestoreAttempt((attempt) => attempt + 1);
   }
 
-  // Registers a citizen and adopts the role returned by the backend.
+  // Starts registration without adopting an authenticated session.
   async function register(credentials) {
-    const registeredUser = await authApi.register(credentials);
-    authVersion.current += 1;
-    setUser(registeredUser);
-    setIsLoading(false);
-    setSessionError(null);
-    setLogoutWarning(false);
-    return registeredUser;
+    return authApi.register(credentials);
   }
 
-  // Logs in and adopts the role returned by the backend.
+  async function completeRegistrationEmail(credentials) {
+    return authApi.completeRegistrationEmail(credentials);
+  }
+
+  async function resendRegistrationEmail(credentials) {
+    return authApi.resendRegistrationEmail(credentials);
+  }
+
+  // Adopts a user only after the backend has issued a complete session.
   async function login(credentials) {
-    const authenticatedUser = await authApi.login(credentials);
+    const result = await authApi.login(credentials);
+    if (result.requiresOtpVerification || result.requiresEmailVerification) return result;
     authVersion.current += 1;
-    setUser(authenticatedUser);
+    setUser(result.user);
     setIsLoading(false);
     setSessionError(null);
     setLogoutWarning(false);
-    return authenticatedUser;
+    return result;
+  }
+
+  async function completeLoginOtp(credentials) {
+    const result = await authApi.completeLoginOtp(credentials);
+    authVersion.current += 1;
+    setUser(result.user);
+    setIsLoading(false);
+    setSessionError(null);
+    setLogoutWarning(false);
+    return result.user;
+  }
+
+  async function resendLoginOtp(credentials) {
+    return authApi.resendLoginOtp(credentials);
+  }
+
+  async function requestPasswordReset(credentials) {
+    return authApi.requestPasswordReset(credentials);
+  }
+
+  async function completePasswordReset(credentials) {
+    const result = await authApi.completePasswordReset(credentials);
+    authVersion.current += 1;
+    setUser(null);
+    setSessionError(null);
+    setIsLoading(false);
+    setLogoutWarning(false);
+    return result;
+  }
+
+  async function deactivateAccount(credentials) {
+    const result = await authApi.deactivateAccount(credentials);
+    authVersion.current += 1;
+    setUser(null);
+    setSessionError(null);
+    setIsLoading(false);
+    setLogoutWarning(false);
+    return result;
   }
 
   // Adopts the public user returned after a profile update.
   async function updateProfile(profile) {
     const updatedUser = await authApi.updateProfile(profile);
     authVersion.current += 1;
-    setUser(updatedUser);
+    setUser(user?.role === 'CITIZEN' && updatedUser.phoneNumber !== user.phoneNumber ? null : updatedUser);
     setIsLoading(false);
     setSessionError(null);
     return updatedUser;
+  }
+
+  async function sendEmailVerificationCode() {
+    return authApi.sendEmailVerificationCode();
+  }
+
+  async function verifyEmailCode(code) {
+    const result = await authApi.verifyEmailCode(code);
+    authVersion.current += 1;
+    setUser(result.user);
+    return result;
   }
 
   async function uploadProfileImage(file, onUploadProgress) {
@@ -148,8 +200,17 @@ export function AuthProvider({ children }) {
     sessionError,
     logoutWarning,
     register,
+    completeRegistrationEmail,
+    resendRegistrationEmail,
     login,
+    completeLoginOtp,
+    resendLoginOtp,
+    requestPasswordReset,
+    completePasswordReset,
+    deactivateAccount,
     updateProfile,
+    sendEmailVerificationCode,
+    verifyEmailCode,
     uploadProfileImage,
     removeProfileImage,
     logout,

@@ -1,4 +1,5 @@
 import { db } from '../../config/database.js';
+import * as objectStorage from '../../services/objectStorage.js';
 
 export class AdminIssueError extends Error {
   constructor(message, status) {
@@ -149,9 +150,56 @@ function mapIssue(row) {
   };
 }
 
-export function listCivicIssues({ limit, offset, status }) {
-  const where = status ? 'i.status = ?' : "i.status <> 'MERGED'";
-  const params = status ? [status, limit + 1, offset] : [limit + 1, offset];
+function escapeLike(value) {
+  return value.replace(/[\\%_]/g, '\\$&');
+}
+
+export function listCivicIssues({ limit, offset, status, department, category, wardId, teamId, search }) {
+  const conditions = [];
+  const params = [];
+  if (status && status !== 'ALL') {
+    conditions.push('i.status = ?');
+    params.push(status);
+  } else if (!status) {
+    conditions.push("i.status <> 'MERGED'");
+  }
+  if (department) {
+    conditions.push(`(i.routing_department = ? OR EXISTS (
+      SELECT 1 FROM complaints c JOIN complaint_ai_assessments a ON a.complaint_id=c.id
+      WHERE c.civic_issue_id=i.id AND a.status='SUCCEEDED' AND a.department=?
+        AND a.id=(SELECT latest.id FROM complaint_ai_assessments latest
+          WHERE latest.complaint_id=c.id AND latest.status='SUCCEEDED'
+          ORDER BY latest.created_at DESC,latest.id DESC LIMIT 1)
+    ))`);
+    params.push(department, department);
+  }
+  if (category) {
+    conditions.push(`EXISTS (
+      SELECT 1 FROM complaints c JOIN complaint_ai_assessments a ON a.complaint_id=c.id
+      WHERE c.civic_issue_id=i.id AND a.status='SUCCEEDED' AND a.category=?
+        AND a.id=(SELECT latest.id FROM complaint_ai_assessments latest
+          WHERE latest.complaint_id=c.id AND latest.status='SUCCEEDED'
+          ORDER BY latest.created_at DESC,latest.id DESC LIMIT 1)
+    )`);
+    params.push(category);
+  }
+  if (wardId !== undefined) {
+    conditions.push('EXISTS (SELECT 1 FROM ward_teams filter_team WHERE filter_team.id=i.assigned_team_id AND filter_team.ward_id=?)');
+    params.push(wardId);
+  }
+  if (teamId !== undefined) {
+    conditions.push('i.assigned_team_id=?');
+    params.push(teamId);
+  }
+  if (search) {
+    const searchPattern = `%${escapeLike(search)}%`;
+    conditions.push(`EXISTS (
+      SELECT 1 FROM complaints c WHERE c.civic_issue_id=i.id
+        AND (c.title LIKE ? ESCAPE '\\' OR c.description LIKE ? ESCAPE '\\')
+    )`);
+    params.push(searchPattern, searchPattern);
+  }
+  params.push(limit + 1, offset);
   const rows = db.prepare(`
     SELECT i.id, i.status, i.merged_into_issue_id, i.assigned_officer_id, i.assigned_team_id, i.routing_department,
            i.created_at, i.updated_at,
@@ -171,7 +219,7 @@ export function listCivicIssues({ limit, offset, status }) {
     LEFT JOIN users officer ON officer.id = i.assigned_officer_id
     LEFT JOIN ward_teams team ON team.id = i.assigned_team_id
     LEFT JOIN wards ward ON ward.id = team.ward_id
-    WHERE ${where}
+    WHERE ${conditions.join(' AND ')}
     ORDER BY i.updated_at DESC, i.id DESC
     LIMIT ? OFFSET ?
   `).all(...params);
@@ -180,6 +228,72 @@ export function listCivicIssues({ limit, offset, status }) {
     items: rows.slice(0, limit).map(mapIssue),
     pagination: { limit, offset, hasMore }
   };
+}
+
+export async function getCivicIssueReviewDetails(issueId, storage = objectStorage) {
+  const issue = getCivicIssue(issueId);
+  if (!issue) return null;
+
+  const reports = db.prepare(`
+    SELECT c.id,c.status,c.title,c.description,c.address,c.latitude,c.longitude,
+           c.location_accuracy_meters,c.created_at,
+           a.status AS assessment_status,a.category,a.department,a.severity,a.severity_reason,
+           a.risk_factors,a.confidence,a.human_review_required,a.human_review_reason,
+           a.created_at AS assessed_at
+    FROM complaints c
+    LEFT JOIN complaint_ai_assessments a ON a.id=(
+      SELECT latest.id FROM complaint_ai_assessments latest
+      WHERE latest.complaint_id=c.id ORDER BY latest.created_at DESC,latest.id DESC LIMIT 1
+    )
+    WHERE c.civic_issue_id=?
+    ORDER BY c.created_at DESC,c.id DESC
+  `).all(issueId);
+  const mediaRows = reports.length
+    ? db.prepare(`SELECT id,complaint_id,object_key,media_type,mime_type,byte_size,created_at
+        FROM complaint_media WHERE complaint_id IN (${reports.map(() => '?').join(',')})
+        ORDER BY created_at,id`).all(...reports.map((report) => report.id))
+    : [];
+  const mediaByComplaint = new Map();
+  for (const media of mediaRows) {
+    const existing = mediaByComplaint.get(media.complaint_id) ?? [];
+    existing.push(media);
+    mediaByComplaint.set(media.complaint_id, existing);
+  }
+
+  issue.linkedComplaints = await Promise.all(reports.map(async (report) => ({
+    complaintId: report.id,
+    status: report.status,
+    title: report.title,
+    description: report.description,
+    address: report.address,
+    location: {
+      latitude: report.latitude,
+      longitude: report.longitude,
+      accuracyMeters: report.location_accuracy_meters
+    },
+    createdAt: report.created_at,
+    media: await Promise.all((mediaByComplaint.get(report.id) ?? []).map(async (item) => ({
+      id: item.id,
+      mediaType: item.media_type,
+      mimeType: item.mime_type,
+      byteSize: item.byte_size,
+      createdAt: item.created_at,
+      url: await storage.createComplaintReadUrl(item.object_key, item.mime_type)
+    }))),
+    aiAssessment: report.assessment_status === null ? null : {
+      status: report.assessment_status,
+      category: report.category,
+      department: report.department,
+      severity: report.severity,
+      severityReason: report.severity_reason,
+      riskFactors: report.risk_factors,
+      confidence: report.confidence,
+      humanReviewRequired: report.human_review_required === null ? null : Boolean(report.human_review_required),
+      humanReviewReason: report.human_review_reason,
+      assessedAt: report.assessed_at
+    }
+  })));
+  return issue;
 }
 
 const findCanonicalIssue = db.prepare(`

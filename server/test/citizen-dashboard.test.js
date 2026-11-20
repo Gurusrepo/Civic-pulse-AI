@@ -121,19 +121,29 @@ test('complaint summary counts owned complaint rows by linked civic issue status
   assert.deepEqual(items.map((item) => item.id), complaintIds.slice(0, 5).reverse().slice(0, 4));
 });
 
-test('announcement publishing is admin-only and published announcements are citizen-readable', async () => {
+test('announcement creation is admin-only and published announcements are citizen-readable', async () => {
   const denied = await request('/api/admin/announcements', {
     userId: 2, method: 'POST', body: { title: 'Town notice', description: 'A public notice.' }
   });
   assert.equal(denied.status, 403);
 
-  const published = await request('/api/admin/announcements', {
+  const created = await request('/api/admin/announcements', {
     userId: 1, method: 'POST', body: { title: 'Town notice', description: 'A public notice.' }
   });
-  assert.equal(published.status, 201);
-  const { announcement } = await published.json();
+  assert.equal(created.status, 201);
+  const { announcement } = await created.json();
   assert.equal(announcement.title, 'Town notice');
-  assert.ok(announcement.publishedAt);
+  assert.equal(announcement.isPublished, false);
+
+  const publishResponse = await request(`/api/admin/announcements/${announcement.id}/publication`, {
+    userId: 1,
+    method: 'PATCH',
+    body: { isPublished: true }
+  });
+  assert.equal(publishResponse.status, 200);
+  const { announcement: published } = await publishResponse.json();
+  assert.equal(published.isPublished, true);
+  assert.ok(published.publishedAt);
 
   const list = await request('/api/announcements?limit=3&offset=0', { userId: 2 });
   assert.equal(list.status, 200);

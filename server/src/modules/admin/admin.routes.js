@@ -3,23 +3,41 @@ import { authenticate } from '../../middleware/authenticate.js';
 import { authorize } from '../../middleware/authorize.js';
 import { validate } from '../../middleware/validate.js';
 import * as controller from './admin.controller.js';
+import * as dashboardController from './dashboard.controller.js';
 import {
   assignOfficerSchema, issueIdSchema, issueListQuerySchema, duplicateListQuerySchema, duplicateIdSchema,
   approveDuplicateSchema, rejectDuplicateSchema, wardIdSchema, memberParamsSchema, wardListQuerySchema,
   teamListQuerySchema, membershipListQuerySchema, createWardSchema, updateWardSchema,
   createTeamSchema, updateTeamSchema, addTeamMemberSchema, teamRoutingSchema,
-  disputeIssueIdSchema, disputeListQuerySchema, disputeReviewSchema
+  disputeIssueIdSchema, disputeListQuerySchema, disputeReviewSchema,
+  officerIdSchema, officerListQuerySchema, createOfficerSchema, updateOfficerStatusSchema,
+  reportedProblemListQuerySchema, reportedProblemReferenceSchema, updateReportedProblemStatusSchema,
+  suggestionListQuerySchema, suggestionReferenceSchema, updateSuggestionStatusSchema
 } from './admin.validation.js';
 import * as duplicateController from './duplicate.controller.js';
 import * as objectStorage from '../../services/objectStorage.js';
 import { createDisputeReviewController } from './admin.controller.js';
+import { createReportedProblemController } from './reported-problem.controller.js';
+import * as suggestionController from './suggestion.controller.js';
+import { createOfficerManagementController } from './officer-management.controller.js';
+import { sendVerificationCode } from '../auth/verification.service.js';
 
-export function createAdminRouter(storageAdapter = objectStorage) {
+export function createAdminRouter(storageAdapter = objectStorage, verificationSender = sendVerificationCode) {
   const router = Router();
+  const issueController = controller.createIssueController(storageAdapter);
+  const officerController = createOfficerManagementController(verificationSender);
   const disputeController = createDisputeReviewController(storageAdapter);
+  const problemController = createReportedProblemController(storageAdapter);
   router.use(authenticate, authorize('ADMIN'));
+  router.get('/dashboard', dashboardController.getDashboard);
+  router.get('/reported-problems', validate(reportedProblemListQuerySchema, 'query'), problemController.list);
+  router.get('/reported-problems/:referenceId', validate(reportedProblemReferenceSchema, 'params'), problemController.get);
+  router.patch('/reported-problems/:referenceId/status', validate(reportedProblemReferenceSchema, 'params'), validate(updateReportedProblemStatusSchema), problemController.update);
+  router.get('/suggestions', validate(suggestionListQuerySchema, 'query'), suggestionController.listSuggestions);
+  router.get('/suggestions/:referenceId', validate(suggestionReferenceSchema, 'params'), suggestionController.getSuggestion);
+  router.patch('/suggestions/:referenceId/status', validate(suggestionReferenceSchema, 'params'), validate(updateSuggestionStatusSchema), suggestionController.updateSuggestion);
   router.get('/civic-issues', validate(issueListQuerySchema, 'query'), controller.listIssues);
-  router.get('/civic-issues/:id', validate(issueIdSchema, 'params'), controller.getIssue);
+  router.get('/civic-issues/:id', validate(issueIdSchema, 'params'), issueController);
   router.post('/civic-issues/:id/assignments', validate(issueIdSchema, 'params'), validate(assignOfficerSchema), controller.assignOfficer);
   router.post('/civic-issues/:id/assignments/reassign', validate(issueIdSchema, 'params'), validate(assignOfficerSchema), controller.reassignOfficer);
   router.post('/civic-issues/:id/assignments/unassign', validate(issueIdSchema, 'params'), controller.unassignOfficer);
@@ -45,6 +63,11 @@ export function createAdminRouter(storageAdapter = objectStorage) {
   router.get('/disputes', validate(disputeListQuerySchema, 'query'), disputeController.list);
   router.get('/disputes/:issueId', validate(disputeIssueIdSchema, 'params'), disputeController.get);
   router.post('/disputes/:issueId/review', validate(disputeIssueIdSchema, 'params'), validate(disputeReviewSchema), disputeController.review);
+  router.get('/officers', validate(officerListQuerySchema, 'query'), officerController.list);
+  router.post('/officers', validate(createOfficerSchema), officerController.create);
+  router.get('/officers/:id', validate(officerIdSchema, 'params'), officerController.get);
+  router.patch('/officers/:id/status', validate(officerIdSchema, 'params'), validate(updateOfficerStatusSchema), officerController.updateStatus);
+  router.post('/officers/:id/invitation', validate(officerIdSchema, 'params'), officerController.resendInvitation);
   return router;
 }
 

@@ -22,6 +22,10 @@ import * as requiredVerificationDestination from './migrations/020_required_veri
 import * as emailOnlyVerification from './migrations/021_email_only_verification.js';
 import * as registrationOtpDeliveryState from './migrations/022_registration_otp_delivery_state.js';
 import * as complaintAddress from './migrations/023_complaint_address.js';
+import * as supportSubmissionStatus from './migrations/024_support_submission_status.js';
+import * as supportSuggestionsWorkflow from './migrations/025_support_suggestions_workflow.js';
+import * as announcementManagement from './migrations/026_announcement_management.js';
+import * as officerManagement from './migrations/027_officer_management.js';
 
 export const migrations = [
   coreSchema,
@@ -46,7 +50,11 @@ export const migrations = [
   requiredVerificationDestination,
   emailOnlyVerification,
   registrationOtpDeliveryState,
-  complaintAddress
+  complaintAddress,
+  supportSubmissionStatus,
+  supportSuggestionsWorkflow,
+  announcementManagement,
+  officerManagement
 ];
 
 export function migrateDatabase(database = defaultDatabase) {

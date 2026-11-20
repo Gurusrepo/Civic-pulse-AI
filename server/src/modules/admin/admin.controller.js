@@ -9,12 +9,14 @@ export function listIssues(req, res, next) {
   catch (error) { next(error); }
 }
 
-export function getIssue(req, res, next) {
-  try {
-    const issue = adminService.getCivicIssue(req.params.id);
-    if (!issue) return res.status(404).json({ error: 'Civic issue not found' });
-    res.json({ issue });
-  } catch (error) { next(error); }
+export function createIssueController(storageAdapter = objectStorage) {
+  return async function getIssue(req, res, next) {
+    try {
+      const issue = await adminService.getCivicIssueReviewDetails(req.params.id, storageAdapter);
+      if (!issue) return res.status(404).json({ error: 'Civic issue not found' });
+      res.json({ issue });
+    } catch (error) { next(error); }
+  };
 }
 
 export function assignOfficer(req, res, next) {

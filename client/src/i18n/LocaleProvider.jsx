@@ -1,23 +1,33 @@
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import en from './catalogs/en.js';
+import ta from './catalogs/ta.js';
+import { translateMessage } from './translate.js';
 
 const LocaleContext = createContext(null);
-
-function resolveMessage(catalog, key) {
-  return key.split('.').reduce((value, part) => value?.[part], catalog);
-}
+const warnedMissingKeys = new Set();
 
 export function LocaleProvider({ children }) {
+  const [locale, setLocaleState] = useState(() => localStorage.getItem('nammakkal-language') === 'ta' ? 'ta' : 'en');
+  const setLocale = useCallback((nextLocale) => {
+    const next = nextLocale === 'ta' ? 'ta' : 'en';
+    localStorage.setItem('nammakkal-language', next);
+    document.documentElement.lang = next;
+    setLocaleState(next);
+  }, []);
+  useEffect(() => { document.documentElement.lang = locale; }, [locale]);
   const value = useMemo(() => ({
-    locale: 'en',
+    locale,
+    setLocale,
     t(key, values = {}) {
-      const message = resolveMessage(en, key);
-      if (typeof message !== 'string') return key;
-      return message.replace(/\{(\w+)\}/g, (match, name) => (
-        Object.hasOwn(values, name) ? String(values[name]) : match
-      ));
+      return translateMessage(locale === 'ta' ? ta : en, en, locale, key, values, (missingKey, missingLocale) => {
+        if (!import.meta.env.DEV) return;
+        const warningKey = `${missingLocale}:${missingKey}`;
+        if (warnedMissingKeys.has(warningKey)) return;
+        warnedMissingKeys.add(warningKey);
+        console.warn(`[NamMakkal i18n] Missing translation "${missingKey}" in the ${missingLocale} catalog.`);
+      });
     }
-  }), []);
+  }), [locale, setLocale]);
 
   return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;
 }
